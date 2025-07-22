@@ -1,1 +1,6 @@
 build
+outs
+*.onnx
+*.trt
+*.jpg
+seg_model

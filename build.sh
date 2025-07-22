@@ -1,5 +1,20 @@
 #!/bin/bash
 
+export THIRD_PARTY=/home/ubuntu/ThirdParty
+export PATH=/usr/local/cuda/bin:$PATH
+export LD_LIBRARY_PATH=/home/ubuntu/wtwei/FastDeploy-release-1.1.0/build/compiled_fastdeploy_sdk/lib:\
+/home/ubuntu/cudnn-linux-x86_64-8.4.1.50_cuda11.6-archive/lib:\
+/usr/local/cuda/lib64:\
+$THIRD_PARTY/FFmpeg-n6.0/install/lib:\
+$THIRD_PARTY/TensorRT-8.5.1.7/lib:\
+/home/ubuntu/wtwei/FastDeploy-release-1.1.0/build/compiled_fastdeploy_sdk/third_libs/install/onnxruntime/lib:\
+/home/ubuntu/wtwei/FastDeploy-release-1.1.0/build/compiled_fastdeploy_sdk/lib:\
+/home/ubuntu/wtwei/FastDeploy-release-1.1.0/build/compiled_fastdeploy_sdk/third_libs/install/opencv/lib64:\
+/home/ubuntu/wtwei/FastDeploy-release-1.1.0/build/compiled_fastdeploy_sdk/third_libs/install/openvino/runtime/lib:\
+/home/ubuntu/wtwei/FastDeploy-release-1.1.0/build/compiled_fastdeploy_sdk/third_libs/install/paddle2onnx/lib:\
+/home/ubuntu/wtwei/FastDeploy-release-1.1.0/build/compiled_fastdeploy_sdk/third_libs/install/paddle_inference/paddle/lib:\
+$LD_LIBRARY_PATH
+
 # 高速公路事件检测流水线系统构建脚本
 
 echo "=== 高速公路事件检测流水线系统 构建脚本 ==="
@@ -44,8 +59,9 @@ read -p "🚀 是否立即运行程序? (y/n): " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo "🏃‍♂️ 运行程序..."
+    cd ..
     echo
-    ./PipelineHighwayEvent
+    ./build/PipelineHighwayEvent
 fi
 
 echo

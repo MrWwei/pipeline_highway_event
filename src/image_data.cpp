@@ -2,26 +2,39 @@
 #include <iostream>
 #include <random>
 
-ImageData::ImageData(const std::string &path, int w, int h, int c)
-    : image_path(path), width(w), height(h), channels(c),
-      segmentation_complete(false), detection_complete(false) {
-
-  // 模拟加载图像数据
-  raw_data.resize(width * height * channels);
-
-  // 用随机数据填充（模拟真实图像数据）
-  std::random_device rd;
-  std::mt19937 gen(rd());
-  std::uniform_int_distribution<> dis(0, 255);
-
-  for (auto &pixel : raw_data) {
-    pixel = static_cast<uint8_t>(dis(gen));
+// 析构函数
+ImageData::~ImageData() {
+  // 确保所有promise都被设置，防止有等待的future
+  try {
+    if (segmentation_promise) {
+      segmentation_promise->set_value();
+    }
+    if (mask_postprocess_promise) {
+      mask_postprocess_promise->set_value();
+    }
+    if (detection_promise) {
+      detection_promise->set_value();
+    }
+  } catch (const std::future_error &) {
+    // 忽略promise已经被设置的错误
   }
 
-  std::cout << "✓ 图像数据加载完成: " << image_path << " (" << width << "x"
-            << height << "x" << channels << ")" << std::endl;
+  if (imageMat) {
+    delete imageMat;
+    imageMat = nullptr;
+  }
+  if (segInResizeMat) {
+    delete segInResizeMat;
+    segInResizeMat = nullptr;
+  }
 }
 
+// 检查是否完全处理完成
 bool ImageData::is_fully_processed() const {
-  return segmentation_complete && detection_complete;
+  return segmentation_future.wait_for(std::chrono::seconds(0)) ==
+             std::future_status::ready &&
+         mask_postprocess_future.wait_for(std::chrono::seconds(0)) ==
+             std::future_status::ready &&
+         detection_future.wait_for(std::chrono::seconds(0)) ==
+             std::future_status::ready;
 }

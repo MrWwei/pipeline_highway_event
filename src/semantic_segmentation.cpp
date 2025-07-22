@@ -4,20 +4,52 @@
 #include <random>
 #include <thread>
 
+#include "thread_safe_queue.h"
+const int batch_size = 8;
+//析构函数
+SemanticSegmentation::~SemanticSegmentation() {
+  stop_worker_ = true;
+  if (worker_thread_.joinable()) {
+    worker_thread_.join();
+  }
+  delete road_seg_instance_;
+}
+
 SemanticSegmentation::SemanticSegmentation(int num_threads)
-    : ImageProcessor(num_threads, "语义分割") {
-  // 基类已经完成了初始化工作
+    : ImageProcessor(num_threads, "语义分割"), stop_worker_(false) {
+  // 初始化处理队列
+  segmentation_queue_ =
+      std::make_unique<ThreadSafeQueue<ImageDataPtr>>(100); // 设置队列容量为100
+
+  // 初始化模型
+  SegInitParams init_params;
+  init_params.model_path = "seg_model";
+  init_params.enable_show = false; // 启用可视化
+  init_params.seg_show_image_path = "./segmentation_results/";
+
+  road_seg_instance_ = createRoadSeg();
+
+  std::cout << "\nInitializing segmentation model..." << std::endl;
+  int init_result = road_seg_instance_->init_seg(init_params);
 }
 
 void SemanticSegmentation::process_image(ImageDataPtr image, int thread_id) {
-  // 调用具体的语义分割算法
-  perform_semantic_segmentation(image, thread_id);
+  if (!image || !image->segInResizeMat) {
+    std::cerr << "Error: Invalid image data in process_image" << std::endl;
+    return;
+  }
+  segmentation_queue_->push(image);
 }
 
 void SemanticSegmentation::on_processing_start(ImageDataPtr image,
                                                int thread_id) {
-  // 可以在这里添加语义分割特有的预处理逻辑
-  // 例如：图像预处理、内存分配等
+  // 为 segInResizeMat 分配内存
+  if (!image->segInResizeMat) {
+    image->segInResizeMat = new cv::Mat();
+  }
+  auto start_time = std::chrono::high_resolution_clock::now();
+  cv::resize(*image->imageMat, *image->segInResizeMat, cv::Size(1024, 1024));
+  return;
 }
 
 void SemanticSegmentation::on_processing_complete(ImageDataPtr image,
@@ -26,28 +58,133 @@ void SemanticSegmentation::on_processing_complete(ImageDataPtr image,
   // 例如：结果验证、统计信息更新等
 }
 
+// 只负责入队
 void SemanticSegmentation::perform_semantic_segmentation(ImageDataPtr image,
                                                          int thread_id) {
-  // 模拟语义分割算法的耗时处理
-  // 这里使用睡眠来模拟复杂的计算过程
-  std::this_thread::sleep_for(
-      std::chrono::milliseconds(30)); // 模拟30毫秒的处理时间
 
-  // 生成模拟的语义分割结果
-  image->segmentation_mask.resize(image->width * image->height);
+  // cv::Mat &segInMat = *image->segInResizeMat;
+  // std::vector<cv::Mat *> image_ptrs;
+  // image_ptrs.push_back(&segInMat);
+  // SegInputParams input_params(image_ptrs);
+  // SegResult seg_result;
+  // road_seg_instance_->seg_road(input_params, seg_result);
 
-  std::random_device rd;
-  std::mt19937 gen(rd());
-  std::uniform_int_distribution<> class_dis(0, 10); // 假设有11个类别（0-10）
+  // // 检查结果是否有效
+  // if (!seg_result.results.empty() &&
+  // !seg_result.results[0].label_map.empty()) {
+  //   image->label_map.resize(seg_result.results[0].label_map.size());
+  //   std::copy(seg_result.results[0].label_map.begin(),
+  //             seg_result.results[0].label_map.end(),
+  //             image->label_map.begin());
+  //   image->mask_height = segInMat.rows;
+  //   image->mask_width = segInMat.cols;
+  // } else {
+  //   image->label_map.resize(image->mask_height * image->mask_width, 0);
+  // }
+  // image->segmentation_complete = true;
+  return;
+}
 
-  // 填充分割掩码
-  for (int i = 0; i < image->width * image->height; ++i) {
-    image->segmentation_mask[i] = class_dis(gen);
+// 队列处理线程
+void SemanticSegmentation::segmentation_worker() {
+  while (!stop_worker_) {
+    try {
+      // 检查队列大小决定使用批处理还是单个处理
+      if (segmentation_queue_->size() >= batch_size) {
+        // 批量处理
+        std::vector<ImageDataPtr> batch_images;
+
+        // 批量取出数据
+        for (int i = 0; i < batch_size; ++i) {
+          ImageDataPtr img;
+          segmentation_queue_->wait_and_pop(img);
+          if (!img || !img->segInResizeMat) {
+            throw std::runtime_error("批处理中存在无效的图像数据");
+          }
+          batch_images.push_back(img);
+        }
+
+        // 构建批量输入
+        std::vector<cv::Mat *> image_ptrs;
+        for (const auto &img : batch_images) {
+          image_ptrs.push_back(img->segInResizeMat);
+        }
+
+        // 执行批量分割
+        SegInputParams input_params(image_ptrs);
+        SegResult seg_result;
+        if (road_seg_instance_->seg_road(input_params, seg_result) != 0) {
+          throw std::runtime_error("批量语义分割执行失败");
+        }
+
+        // 处理每个图像的结果
+        for (size_t idx = 0; idx < batch_images.size(); ++idx) {
+          auto &image = batch_images[idx];
+          try {
+            if (seg_result.results.size() > idx &&
+                !seg_result.results[idx].label_map.empty()) {
+              // 设置结果
+              image->label_map.resize(seg_result.results[idx].label_map.size());
+              std::copy(seg_result.results[idx].label_map.begin(),
+                        seg_result.results[idx].label_map.end(),
+                        image->label_map.begin());
+              image->mask_height = image->segInResizeMat->rows;
+              image->mask_width = image->segInResizeMat->cols;
+
+              // 通知完成
+              image->segmentation_promise->set_value();
+            } else {
+              throw std::runtime_error("无效的批处理结果");
+            }
+          } catch (const std::exception &e) {
+            std::cerr << "处理批量结果 " << idx << " 失败: " << e.what()
+                      << std::endl;
+            image->segmentation_promise->set_exception(
+                std::current_exception());
+          }
+        }
+      } else {
+        // 单个处理
+        ImageDataPtr image;
+        segmentation_queue_->wait_and_pop(image);
+
+        if (!image || !image->segInResizeMat) {
+          throw std::runtime_error("无效的图像数据");
+        }
+
+        try {
+          // 执行单个分割
+          std::vector<cv::Mat *> image_ptrs{image->segInResizeMat};
+          SegInputParams input_params(image_ptrs);
+          SegResult seg_result;
+
+          if (road_seg_instance_->seg_road(input_params, seg_result) != 0) {
+            throw std::runtime_error("语义分割执行失败");
+          }
+
+          // 检查并设置结果
+          if (!seg_result.results.empty() &&
+              !seg_result.results[0].label_map.empty()) {
+            image->label_map.resize(seg_result.results[0].label_map.size());
+            std::copy(seg_result.results[0].label_map.begin(),
+                      seg_result.results[0].label_map.end(),
+                      image->label_map.begin());
+            image->mask_height = image->segInResizeMat->rows;
+            image->mask_width = image->segInResizeMat->cols;
+
+            // 通知完成
+            image->segmentation_promise->set_value();
+          } else {
+            throw std::runtime_error("语义分割结果无效");
+          }
+        } catch (const std::exception &e) {
+          std::cerr << "单个处理失败: " << e.what() << std::endl;
+          image->segmentation_promise->set_exception(std::current_exception());
+        }
+      }
+    } catch (const std::exception &e) {
+      std::cerr << "语义分割工作线程异常: " << e.what() << std::endl;
+      std::this_thread::sleep_for(std::chrono::milliseconds(100)); // 避免死循环
+    }
   }
-
-  image->segmentation_complete = true;
-
-  std::cout << "🎯 线程 " << thread_id << " 语义分割结果: 检测到 "
-            << image->segmentation_mask.size() << " 个像素的分类结果"
-            << std::endl;
 }

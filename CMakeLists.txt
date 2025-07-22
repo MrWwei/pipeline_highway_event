@@ -1,12 +1,11 @@
 cmake_minimum_required(VERSION 3.16)
 project(PipelineHighwayEvent)
 
-
+enable_language(CUDA)
 include(${FASTDEPLOY_INSTALL_DIR}/FastDeploy.cmake)
+include_directories(${FASTDEPLOY_INCS})
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-
 
 # Find required packages
 find_package(Threads REQUIRED)
@@ -45,31 +44,53 @@ include_directories(include)
 set(SOURCES
     src/main.cpp
     src/image_processor.cpp
+    src/process_mask.cu
     src/semantic_segmentation.cpp
+    src/mask_postprocess.cpp
     src/object_detection.cpp
     src/pipeline_manager.cpp
     src/image_data.cpp
+    src/seg_utils.cc
 )
 
 # Headers
 set(HEADERS
     include/image_processor.h
     include/semantic_segmentation.h
+    include/mask_postprocess.h
     include/object_detection.h
     include/pipeline_manager.h
     include/image_data.h
     include/thread_safe_queue.h
+    include/process_mask.h
 )
 
 # Create executable
-add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
+add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS} )
 
 # Link libraries
-target_link_libraries(${PROJECT_NAME} Threads::Threads)
+target_link_libraries(${PROJECT_NAME} Threads::Threads 
+    detect_lib
+    track_lib
+    road_seg_interface
+    ${FASTDEPLOY_LIBS}
+    ${OpenCV_LIBS}
+    nvinfer
+    nvinfer_plugin
+    cudnn
+     cuda          
+  cudart    
+  cublas    
+  cublasLt  
+  curand    
+  cusolver  
+  cusparse  
+  cufft  
+)
 
 # Compiler flags
-target_compile_options(${PROJECT_NAME} PRIVATE
-    -Wall
-    -Wextra
-    -O2
-)
+# target_compile_options(${PROJECT_NAME} PRIVATE
+#     # -Wall
+#     # -Wextra
+#     -O2
+# )

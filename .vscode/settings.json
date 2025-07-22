@@ -56,6 +56,11 @@
         "thread": "cpp",
         "cinttypes": "cpp",
         "typeinfo": "cpp",
-        "future": "cpp"
+        "future": "cpp",
+        "bitset": "cpp",
+        "codecvt": "cpp",
+        "unordered_set": "cpp",
+        "__nullptr": "cpp",
+        "__locale": "cpp"
     }
 }

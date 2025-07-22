@@ -1,6 +1,8 @@
 #pragma once
 
 #include "image_processor.h"
+#include "road_seg.h"
+#include "seg_utils.h"
 
 /**
  * 语义分割处理器
@@ -12,8 +14,8 @@ public:
   // 构造函数，可指定线程数量，默认为1
   SemanticSegmentation(int num_threads = 1);
 
-  // 虚析构函数
-  virtual ~SemanticSegmentation() = default;
+  // 析构函数（自定义实现，负责线程清理）
+  virtual ~SemanticSegmentation();
 
 protected:
   // 重写基类的纯虚函数：执行语义分割算法（模拟）
@@ -26,7 +28,36 @@ protected:
   virtual void on_processing_complete(ImageDataPtr image,
                                       int thread_id) override;
 
+public:
+  // 启动处理线程
+  void start() override {
+    ImageProcessor::start(); // 调用基类的start
+    if (!worker_thread_.joinable()) {
+      stop_worker_ = false;
+      worker_thread_ =
+          std::thread(&SemanticSegmentation::segmentation_worker, this);
+    }
+  }
+
+  // 停止处理线程
+  void stop() override {
+    stop_worker_ = true;
+    if (worker_thread_.joinable()) {
+      if (!segmentation_queue_->empty()) {
+        std::cout << "Waiting for segmentation queue to empty..." << std::endl;
+      }
+      worker_thread_.join();
+    }
+    ImageProcessor::stop(); // 调用基类的stop
+  }
+
 private:
   // 具体的语义分割算法实现
   void perform_semantic_segmentation(ImageDataPtr image, int thread_id);
+  void segmentation_worker();
+
+  std::unique_ptr<ThreadSafeQueue<ImageDataPtr>> segmentation_queue_;
+  std::thread worker_thread_;
+  std::atomic<bool> stop_worker_;
+  IRoadSeg *road_seg_instance_; // 支持多线程的SDK实例列表
 };

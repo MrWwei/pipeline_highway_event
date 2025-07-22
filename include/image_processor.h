@@ -43,6 +43,8 @@ public:
 
   // 获取输入队列大小
   virtual size_t get_queue_size() const;
+  // 获取输出队列大小
+  virtual size_t get_output_queue_size() const;
 
   // 获取当前活跃线程数量
   virtual int get_thread_count() const;

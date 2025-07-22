@@ -63,15 +63,21 @@ void ImageProcessor::add_image(ImageDataPtr image) {
     std::cout << "⚠️ " << processor_name_
               << " 输入队列接近满容量: " << current_size << "/100" << std::endl;
   }
-
   input_queue_.push(image);
 }
 
 bool ImageProcessor::get_processed_image(ImageDataPtr &image) {
-  return output_queue_.try_pop(image);
+  if (output_queue_.empty()) {
+    return false;
+  }
+  output_queue_.wait_and_pop(image);
+  return true;
 }
 
 size_t ImageProcessor::get_queue_size() const { return input_queue_.size(); }
+size_t ImageProcessor::get_output_queue_size() const {
+  return output_queue_.size();
+}
 
 int ImageProcessor::get_thread_count() const { return num_threads_; }
 
@@ -86,35 +92,21 @@ void ImageProcessor::worker_thread_func(int thread_id) {
   while (running_.load()) {
     ImageDataPtr image;
 
-    // 从输入队列获取图像
-    if (input_queue_.try_pop(image)) {
+    if (!input_queue_.empty()) {
+      input_queue_.wait_and_pop(image);
       if (!image) {
-        continue; // 跳过空指针
+        std::cerr << "⚠️ [" << processor_name_ << "] 获取到空图像指针"
+                  << std::endl;
+        continue;
       }
+      on_processing_start(image, thread_id);
 
-      try {
-        // 处理前准备
-        on_processing_start(image, thread_id);
+      // 执行具体的图像处理算法
+      process_image(image, thread_id);
 
-        // 执行具体的图像处理算法
-        process_image(image, thread_id);
-
-        // 处理后清理
-        on_processing_complete(image, thread_id);
-
-        // 将处理完成的图像放入输出队列
-        output_queue_.push(image);
-
-      } catch (const std::exception &e) {
-        std::cerr << "❌ " << processor_name_ << " 线程 " << thread_id
-                  << " 处理图像时发生异常: " << e.what() << std::endl;
-      }
-    } else {
-      // 没有数据时短暂休眠，避免过度消耗CPU
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      // 处理后清理
+      on_processing_complete(image, thread_id);
+      output_queue_.push(image);
     }
   }
-
-  std::cout << "🏁 " << processor_name_ << "工作线程 " << thread_id << " 结束"
-            << std::endl;
 }
