@@ -20,23 +20,36 @@ void MaskPostProcess::process_image(ImageDataPtr image, int thread_id) {
   }
 
   try {
-    // 等待语义分割完成
-    std::cout << "⏳ [线程 " << thread_id << "] 等待语义分割完成..."
-              << std::endl;
+    // 等待语义分割完成（去除输出）
+    // std::cout << "⏳ [线程 " << thread_id << "] 等待语义分割完成..." << std::endl;
     image->segmentation_future.get(); // 阻塞等待语义分割完成
-    std::cout << "✅ [线程 " << thread_id << "] 语义分割已完成" << std::endl;
+    // std::cout << "✅ [线程 " << thread_id << "] 语义分割已完成" << std::endl;
 
     // 检查结果是否有效
     if (image->label_map.empty()) {
       std::cerr << "❌ [线程 " << thread_id << "] 语义分割结果无效" << std::endl;
-      image->mask_postprocess_promise->set_exception(
-          std::make_exception_ptr(std::runtime_error("语义分割结果无效")));
+      try {
+        if (image->mask_postprocess_promise && 
+            image->mask_postprocess_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+          image->mask_postprocess_promise->set_exception(
+              std::make_exception_ptr(std::runtime_error("语义分割结果无效")));
+        }
+      } catch (const std::future_error& e) {
+        std::cout << "⚠️ Promise异常已被设置，帧 " << image->frame_idx << ": " << e.what() << std::endl;
+      }
       return;
     }
   } catch (const std::exception &e) {
     std::cerr << "❌ [线程 " << thread_id
               << "] 等待语义分割时发生错误: " << e.what() << std::endl;
-    image->mask_postprocess_promise->set_exception(std::current_exception());
+    try {
+      if (image->mask_postprocess_promise && 
+          image->mask_postprocess_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+        image->mask_postprocess_promise->set_exception(std::current_exception());
+      }
+    } catch (const std::future_error& e) {
+      std::cout << "⚠️ Promise异常已被设置，帧 " << image->frame_idx << ": " << e.what() << std::endl;
+    }
     return;
   }
   // 语义分割已完成，执行Mask后处理
@@ -44,11 +57,13 @@ void MaskPostProcess::process_image(ImageDataPtr image, int thread_id) {
 }
 
 void MaskPostProcess::on_processing_start(ImageDataPtr image, int thread_id) {
-  std::cout << "🔍 Mask后处理准备开始 (线程 " << thread_id << ")" << std::endl;
+  std::cout << "🔍 Mask后处理准备开始 (线程 " << thread_id << ", 帧 " << image->frame_idx << ")" << std::endl;
 }
 
 void MaskPostProcess::on_processing_complete(ImageDataPtr image,
-                                             int thread_id) {}
+                                             int thread_id) {
+  std::cout << "🔍 Mask后处理完成 (线程 " << thread_id << ", 帧 " << image->frame_idx << ")" << std::endl;
+}
 
 void MaskPostProcess::perform_mask_postprocess(ImageDataPtr image,
                                                int thread_id) {
@@ -108,9 +123,16 @@ void MaskPostProcess::perform_mask_postprocess(ImageDataPtr image,
   auto end_time = std::chrono::high_resolution_clock::now();
   auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
       end_time - start_time);
-  std::cout << "✅ Mask后处理完成 (线程 " << thread_id
-            << ")，耗时: " << duration.count() << "ms" << std::endl;
+  // 去除Mask后处理完成输出
+  // std::cout << "✅ Mask后处理完成 (线程 " << thread_id << ")，耗时: " << duration.count() << "ms" << std::endl;
 
-  // 通知mask后处理完成
-  image->mask_postprocess_promise->set_value();
+  // 通知mask后处理完成 - 先检查是否已经设置
+  try {
+    if (image->mask_postprocess_promise && 
+        image->mask_postprocess_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+      image->mask_postprocess_promise->set_value();
+    }
+  } catch (const std::future_error& e) {
+    std::cout << "⚠️ Promise已被设置，帧 " << image->frame_idx << ": " << e.what() << std::endl;
+  }
 }

@@ -92,6 +92,27 @@ public:
   }
 
   /*-------------------------------------------------
+   * 非阻塞 try_pop 方法
+   *------------------------------------------------*/
+  bool try_pop(T &out) {
+    std::lock_guard<std::mutex> lk(mtx_);
+    if (q_.empty()) {
+      return false;
+    }
+    
+    try {
+      out = std::move(q_.front());
+      q_.pop();
+    } catch (...) {
+      cv_not_empty_.notify_all();
+      cv_not_full_.notify_all();
+      throw;
+    }
+    cv_not_full_.notify_one();
+    return true;
+  }
+
+  /*-------------------------------------------------
    * 只读查询
    *------------------------------------------------*/
   bool empty() const {

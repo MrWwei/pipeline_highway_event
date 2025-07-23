@@ -3,6 +3,8 @@
 #include "image_data.h"
 #include "mask_postprocess.h"
 #include "object_detection.h"
+#include "object_tracking.h"
+#include "box_filter.h"
 #include "semantic_segmentation.h"
 #include <atomic>
 #include <memory>
@@ -11,35 +13,39 @@
 
 /**
  * 流水线管理器
- * 管理语义分割和目标检测的流水线处理
+ * 管理语义分割、Mask后处理、目标检测、目标跟踪和目标框筛选的流水线处理
  */
 class PipelineManager {
 private:
   std::unique_ptr<SemanticSegmentation> semantic_seg_;
   std::unique_ptr<MaskPostProcess> mask_postprocess_;
   std::unique_ptr<ObjectDetection> object_det_;
+  std::unique_ptr<ObjectTracking> object_track_;
+  std::unique_ptr<BoxFilter> box_filter_;
 
   std::atomic<bool> running_;
   // 为每个阶段创建独立的协调线程
-  std::thread seg_to_mask_thread_;     // 语义分割->Mask后处理
-  std::thread mask_to_detect_thread_;  // Mask后处理->目标检测
-  std::thread detect_to_final_thread_; // 目标检测->最终结果
+  std::thread seg_to_mask_thread_;         // 语义分割->Mask后处理
+  std::thread mask_to_detect_thread_;      // Mask后处理->目标检测（直接到目标跟踪）
+  std::thread track_to_filter_thread_;     // 目标跟踪->目标框筛选
+  std::thread filter_to_final_thread_;     // 目标框筛选->最终结果
 
-  ThreadSafeQueue<ImageDataPtr> final_results_;
+  ThreadSafeQueue<ImageDataPtr> final_results_ = ThreadSafeQueue<ImageDataPtr>(500); // 最终结果队列，容量200
   std::map<uint64_t, ImageDataPtr> pending_results_; // 用于暂存未按序的结果
   std::mutex pending_results_mutex_;
   uint64_t next_frame_idx_; // 下一个应该输出的帧序号
 
 private:
   // 各阶段的处理函数
-  void seg_to_mask_thread_func(); // 处理语义分割到Mask后处理的数据流转
-  void mask_to_detect_thread_func(); // 处理Mask后处理到目标检测的数据流转
-  void detect_to_final_thread_func(); // 处理目标检测到最终结果的数据流转
+  void seg_to_mask_thread_func();         // 处理语义分割到Mask后处理的数据流转
+  void mask_to_detect_thread_func();      // 处理Mask后处理到目标检测并直接流转到目标跟踪
+  void track_to_filter_thread_func();     // 处理目标跟踪到目标框筛选的数据流转
+  void filter_to_final_thread_func();     // 处理目标框筛选到最终结果的数据流转
 
 public:
   // 构造函数，可指定各个模块的线程数量
   PipelineManager(int semantic_threads = 2, int mask_postprocess_threads = 1,
-                  int detection_threads = 2);
+                  int detection_threads = 2, int tracking_threads = 1, int box_filter_threads = 1);
   ~PipelineManager();
 
   // 启动流水线

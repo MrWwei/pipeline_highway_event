@@ -1,5 +1,6 @@
 #include "semantic_segmentation.h"
 #include <chrono>
+#include <future>
 #include <iostream>
 #include <random>
 #include <thread>
@@ -131,16 +132,30 @@ void SemanticSegmentation::segmentation_worker() {
               image->mask_height = image->segInResizeMat->rows;
               image->mask_width = image->segInResizeMat->cols;
 
-              // 通知完成
-              image->segmentation_promise->set_value();
+              // 通知完成 - 先检查是否已经设置
+              try {
+                if (image->segmentation_promise && 
+                    image->segmentation_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+                  image->segmentation_promise->set_value();
+                }
+              } catch (const std::future_error& e) {
+                std::cout << "⚠️ Promise已被设置，帧 " << image->frame_idx << ": " << e.what() << std::endl;
+              }
             } else {
               throw std::runtime_error("无效的批处理结果");
             }
           } catch (const std::exception &e) {
             std::cerr << "处理批量结果 " << idx << " 失败: " << e.what()
                       << std::endl;
-            image->segmentation_promise->set_exception(
-                std::current_exception());
+            try {
+              if (image->segmentation_promise && 
+                  image->segmentation_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+                image->segmentation_promise->set_exception(
+                    std::current_exception());
+              }
+            } catch (const std::future_error& e) {
+              std::cout << "⚠️ Promise异常已被设置，帧 " << image->frame_idx << ": " << e.what() << std::endl;
+            }
           }
         }
       } else {
@@ -172,14 +187,28 @@ void SemanticSegmentation::segmentation_worker() {
             image->mask_height = image->segInResizeMat->rows;
             image->mask_width = image->segInResizeMat->cols;
 
-            // 通知完成
-            image->segmentation_promise->set_value();
+            // 通知完成 - 先检查是否已经设置
+            try {
+              if (image->segmentation_promise && 
+                  image->segmentation_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+                image->segmentation_promise->set_value();
+              }
+            } catch (const std::future_error& e) {
+              std::cout << "⚠️ Promise已被设置，帧 " << image->frame_idx << ": " << e.what() << std::endl;
+            }
           } else {
             throw std::runtime_error("语义分割结果无效");
           }
         } catch (const std::exception &e) {
           std::cerr << "单个处理失败: " << e.what() << std::endl;
-          image->segmentation_promise->set_exception(std::current_exception());
+          try {
+            if (image->segmentation_promise && 
+                image->segmentation_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+              image->segmentation_promise->set_exception(std::current_exception());
+            }
+          } catch (const std::future_error& e) {
+            std::cout << "⚠️ Promise异常已被设置，帧 " << image->frame_idx << ": " << e.what() << std::endl;
+          }
         }
       }
     } catch (const std::exception &e) {

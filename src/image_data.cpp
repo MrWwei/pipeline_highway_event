@@ -4,16 +4,27 @@
 
 // 析构函数
 ImageData::~ImageData() {
-  // 确保所有promise都被设置，防止有等待的future
+  // 只有在future还没有ready的情况下才设置promise，避免重复设置
   try {
-    if (segmentation_promise) {
+    if (segmentation_promise && 
+        segmentation_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
       segmentation_promise->set_value();
     }
-    if (mask_postprocess_promise) {
+    if (mask_postprocess_promise && 
+        mask_postprocess_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
       mask_postprocess_promise->set_value();
     }
-    if (detection_promise) {
+    if (detection_promise && 
+        detection_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
       detection_promise->set_value();
+    }
+    if (box_filter_promise && 
+        box_filter_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+      box_filter_promise->set_value();
+    }
+    if (tracking_promise && 
+        tracking_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+      tracking_promise->set_value();
     }
   } catch (const std::future_error &) {
     // 忽略promise已经被设置的错误

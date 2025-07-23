@@ -11,8 +11,8 @@
 
 int main() {
   // 创建流水线管理器 - 配置线程数量
-  // 语义分割：1个线程，Mask后处理：10个线程，目标检测：2个线程
-  PipelineManager pipeline(8, 20, 8);
+  // 语义分割：8个线程，Mask后处理：20个线程，目标检测：8个线程，目标跟踪：1个线程，目标框筛选：4个线程
+  PipelineManager pipeline(8, 20, 8, 1, 4);
 
   // 启动流水线
   pipeline.start();
@@ -33,34 +33,62 @@ int main() {
       ImageDataPtr result;
       bool has_result = false;
 
-      // 尝试获取一个结果
+            // 尝试获取一个结果
       if (pipeline.get_final_result(result)) {
 
-        for (auto box : result->detection_results) {
+        // 显示筛选出的目标框信息
+        // if (result->has_filtered_box) {
+        //   int box_width = result->filtered_box.right - result->filtered_box.left;
+        //   int box_height = result->filtered_box.bottom - result->filtered_box.top;
+        //   int box_center_y = (result->filtered_box.top + result->filtered_box.bottom) / 2;
+          
+        //   // 计算筛选区域
+        //   int region_top = result->height * 2 / 7;
+        //   int region_bottom = result->height * 6 / 7;
+        //   bool in_target_region = (box_center_y >= region_top && box_center_y <= region_bottom);
+          
+        //   std::cout << "🎯 筛选结果 - 帧 " << result->frame_idx << ":" << std::endl;
+        //   std::cout << "   目标框: [" 
+        //             << result->filtered_box.left << ", " << result->filtered_box.top 
+        //             << ", " << result->filtered_box.right << ", " << result->filtered_box.bottom 
+        //             << "]" << std::endl;
+        //   std::cout << "   尺寸: " << box_width << "x" << box_height << "px" 
+        //             << " (宽度: " << box_width << "px)" << std::endl;
+        //   std::cout << "   位置: " << (in_target_region ? "目标区域内" : "全图范围内") 
+        //             << " (中心Y: " << box_center_y << ")" << std::endl;
+        //   std::cout << "   置信度: " << std::fixed << std::setprecision(3) 
+        //             << result->filtered_box.confidence << std::endl;
+        // } else {
+        //   std::cout << "⚠️ 帧 " << result->frame_idx << " - 未找到符合条件的目标框" << std::endl;
+        // }
+        
+        for (auto box : result->track_results) {
           // 在图像上绘制检测框
           cv::rectangle(*result->imageMat, cv::Point(box.left, box.top),
-                        cv::Point(box.right, box.bottom), cv::Scalar(0, 255, 0),
-                        2);
+                        cv::Point(box.right, box.bottom), cv::Scalar(0, 255,
+                        0), 2);
           int track_id = box.track_id;
           // Draw track ID above the bounding box
           cv::putText(*result->imageMat, "ID: " + std::to_string(track_id),
                       cv::Point(box.left, box.top - 10),
-                      cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 255, 0), 2);
+                      cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 255, 0),
+                      2);
         }
 
-        auto end_time = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-            end_time - start_time);
+        // auto end_time = std::chrono::high_resolution_clock::now();
+        // auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+        //     end_time - start_time);
 
-        // 保存处理后的帧 - 使用原始帧序号命名
+        // // 保存处理后的帧 - 使用原始帧序号命名
         std::string output_filename =
-            "outs/output_frame_" + std::to_string(result->frame_idx) + ".jpg";
+            "outs/output_frame_" + std::to_string(result->frame_idx) +
+            ".jpg";
         cv::imwrite(output_filename, *result->imageMat);
 
         has_result = true;
         processed_count++;
-        std::cout << "✅ 处理第 " << result->frame_idx
-                  << " 帧，耗时: " << duration.count() << "ms" << std::endl;
+        // std::cout << "✅ 处理第 " << result->frame_idx
+        //           << " 帧，耗时: " << duration.count() << "ms" << std::endl;
       }
 
       if (!has_result) {
@@ -86,10 +114,23 @@ int main() {
   std::cout << "视频信息:" << std::endl;
   std::cout << "FPS: " << fps << std::endl;
   std::cout << "总帧数: " << frame_count << std::endl;
+  
+  // 显示流水线配置信息
+  std::cout << "\n🔧 流水线配置:" << std::endl;
+  std::cout << "   语义分割: 8 线程" << std::endl;
+  std::cout << "   Mask后处理: 20 线程" << std::endl;
+  std::cout << "   目标检测: 8 线程" << std::endl;
+  std::cout << "   目标框筛选: 4 线程" << std::endl;
+  std::cout << "   流水线阶段: 语义分割 → Mask后处理 → 目标检测 → 目标框筛选 → 最终结果" << std::endl;
+  std::cout << "   筛选条件: 图像 2/7~6/7 区域内宽度最小的目标框（无则全图搜索）" << std::endl;
+  
   auto total_start_time = std::chrono::high_resolution_clock::now();
 
   // 逐帧读取并处理
   cv::Mat frame;
+  int input_frame_count = 0;
+  auto last_status_time = std::chrono::steady_clock::now();
+  
   while (cap.read(frame)) {
     if (frame.empty()) {
       std::cerr << "Error: 空帧" << std::endl;
@@ -103,27 +144,21 @@ int main() {
     // 创建并初始化图像数据
     ImageDataPtr img_data = std::make_shared<ImageData>(frame_copy);
     img_data->frame_idx = frame_idx++; // 设置并递增帧序号
+    // 去除主线程输入打印
     pipeline.add_image(img_data);
+
+    input_frame_count++;
+
+    // 每隔1秒或每10帧打印一次状态（减少清屏频率）
+    auto current_time = std::chrono::steady_clock::now();
+    if (current_time - last_status_time > std::chrono::seconds(5)) {
+      // 简化状态输出，只显示基本进度
+      std::cout << "已输入: " << input_frame_count << " 帧, 已处理: " << processed_count << " 帧" << std::endl;
+      last_status_time = current_time;
+    }
 
     // 按原始视频帧率控制处理速度
     // std::this_thread::sleep_for(std::chrono::milliseconds(delay));
-    // 计算总处理时间
-    auto total_end_time = std::chrono::high_resolution_clock::now();
-    auto total_duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-        total_end_time - total_start_time);
-    // 打印处理状态
-    pipeline.print_status();
-    std::cout << "\n========== 视频处理统计 ==========" << std::endl;
-    std::cout << "总处理帧数: " << processed_count << " 帧" << std::endl;
-    std::cout << "总处理时间: " << total_duration.count() / 1000.0 << " 秒"
-              << std::endl;
-    std::cout << "平均每帧耗时: "
-              << total_duration.count() / (double)processed_count << " 毫秒"
-              << std::endl;
-    std::cout << "实际处理帧率: "
-              << (processed_count * 1000.0) / total_duration.count() << " FPS"
-              << std::endl;
-    std::cout << "================================" << std::endl;
   }
 
   // 主线程等待所有图像处理完成
