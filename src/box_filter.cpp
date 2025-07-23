@@ -4,6 +4,7 @@
 #include <iostream>
 #include <limits>
 
+
 BoxFilter::BoxFilter(int num_threads)
     : ImageProcessor(num_threads, "目标框筛选") {
   std::cout << "🔍 目标框筛选模块初始化完成" << std::endl;
@@ -54,8 +55,8 @@ void BoxFilter::perform_box_filtering(ImageDataPtr image, int thread_id) {
   
   // 计算七分之二到七分之六的区域
   int image_height = image->height;
-  int region_top = image_height * 2 / 7;      // 七分之二处
-  int region_bottom = image_height * 6 / 7;   // 七分之六处
+  int region_top = image_height * 4 / 7;      // 七分之二处
+  int region_bottom = image_height * 8 / 9;   // 七分之六处
   
   std::cout << "🎯 筛选区域: [" << region_top << ", " << region_bottom 
             << "] (图像高度: " << image_height << ")" << std::endl;
@@ -77,6 +78,39 @@ void BoxFilter::perform_box_filtering(ImageDataPtr image, int thread_id) {
     image->has_filtered_box = true;
     
     int box_width = calculate_box_width(*min_width_box);
+    // 转换到mask的坐标系
+    box_width = box_width * image->mask_width / image->width;
+
+    // 根据mask获得车道线
+    EmergencyLaneResult eRes = get_Emergency_Lane(image->mask, box_width, min_width_box->bottom, 3.0f);
+    // 将eRes结果转换到原图
+    for(auto& point : eRes.left_quarter_points) {
+      point.x = static_cast<int>(point.x * image->width / static_cast<double>(image->mask_width));
+      point.y = static_cast<int>(point.y * image->height / static_cast<double>(image->mask_height));
+    }
+    for(auto& point : eRes.right_quarter_points) {
+      point.x = static_cast<int>(point.x * image->width / static_cast<double>(image->mask_width));
+      point.y = static_cast<int>(point.y * image->height / static_cast<double>(image->mask_height));
+    }
+    for(auto& point : eRes.left_lane_region) {
+      point.x = static_cast<int>(point.x * image->width / static_cast<double>(image->mask_width));
+      point.y = static_cast<int>(point.y * image->height / static_cast<double>(image->mask_height));
+    }
+    for(auto& point : eRes.right_lane_region) {
+      point.x = static_cast<int>(point.x * image->width / static_cast<double>(image->mask_width));
+      point.y = static_cast<int>(point.y * image->height / static_cast<double>(image->mask_height));
+    }
+    for(auto& point : eRes.middle_lane_region) {
+      point.x = static_cast<int>(point.x * image->width / static_cast<double>(image->mask_width));
+      point.y = static_cast<int>(point.y * image->height / static_cast<double>(image->mask_height));
+    } 
+    // drawEmergencyLaneQuarterPoints(*image->imageMat, eRes);
+    // cv::imwrite("mask_" + std::to_string(image->frame_idx) + ".jpg", *image->imageMat);
+    // exit(0);
+    // 绘制到原图
+
+
+
     std::cout << "✅ 找到宽度最小的目标框: [" 
               << min_width_box->left << ", " << min_width_box->top 
               << ", " << min_width_box->right << ", " << min_width_box->bottom 
@@ -135,3 +169,46 @@ ImageData::BoundingBox* BoxFilter::find_min_width_box_in_region(
   
   return min_width_box;
 }
+
+void
+  BoxFilter::drawEmergencyLaneQuarterPoints(cv::Mat &image,
+                                 const EmergencyLaneResult &emergency_lane) {
+    if (!emergency_lane.is_valid) {
+      return;
+    }
+
+    // 绘制左车道四分之一点
+    if (!emergency_lane.left_quarter_points.empty()) {
+      for (const auto &point : emergency_lane.left_quarter_points) {
+        cv::circle(image, cv::Point(point.x, point.y), 3, cv::Scalar(0, 255, 0),
+                   -1); // 绿色圆点
+      }
+    }
+
+    // 绘制右车道四分之一点
+    if (!emergency_lane.right_quarter_points.empty()) {
+      for (const auto &point : emergency_lane.right_quarter_points) {
+        cv::circle(image, cv::Point(point.x, point.y), 3, cv::Scalar(0, 0, 255),
+                   -1); // 红色圆点
+      }
+    }
+
+    // 可选：绘制应急车道区域边界
+    if (!emergency_lane.left_lane_region.empty()) {
+      std::vector<cv::Point> left_contour;
+      for (const auto &pt : emergency_lane.left_lane_region) {
+        left_contour.emplace_back(pt.x, pt.y);
+      }
+      cv::polylines(image, left_contour, true, cv::Scalar(255, 255, 0),
+                    2); // 青色线条
+    }
+
+    if (!emergency_lane.right_lane_region.empty()) {
+      std::vector<cv::Point> right_contour;
+      for (const auto &pt : emergency_lane.right_lane_region) {
+        right_contour.emplace_back(pt.x, pt.y);
+      }
+      cv::polylines(image, right_contour, true, cv::Scalar(255, 0, 255),
+                    2); // 紫色线条
+    }
+  }

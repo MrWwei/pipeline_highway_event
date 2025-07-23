@@ -2,6 +2,7 @@
 
 #include "image_processor.h"
 #include "thread_safe_queue.h"
+#include "seg_utils.h"
 
 /**
  * 目标框筛选处理器
@@ -43,4 +44,7 @@ private:
   ImageData::BoundingBox* find_min_width_box_in_region(
       const std::vector<ImageData::BoundingBox>& boxes,
       int region_top, int region_bottom) const;
+  void
+  drawEmergencyLaneQuarterPoints(cv::Mat &image,
+                                 const EmergencyLaneResult &emergency_lane);
 };

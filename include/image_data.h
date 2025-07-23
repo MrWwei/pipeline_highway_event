@@ -23,7 +23,7 @@ struct ImageData {
   std::vector<uint8_t> label_map;
   std::shared_ptr<std::promise<void>> segmentation_promise;
   std::shared_future<void> segmentation_future;
-  cv::Mat mask; // 用于存储Mask后处理的结果
+  cv::Mat mask; // 用于存储Mask后处理的结果 resize后的mask 1024x1024
 
   // Mask后处理结果
   std::shared_ptr<std::promise<void>> mask_postprocess_promise;

@@ -38,9 +38,14 @@ int main() {
 
         // 显示筛选出的目标框信息
         // if (result->has_filtered_box) {
-        //   int box_width = result->filtered_box.right - result->filtered_box.left;
-        //   int box_height = result->filtered_box.bottom - result->filtered_box.top;
-        //   int box_center_y = (result->filtered_box.top + result->filtered_box.bottom) / 2;
+
+        //   cv::rectangle(*result->imageMat,
+        //                 cv::Point(result->filtered_box.left,
+        //                           result->filtered_box.top),
+        //                 cv::Point(result->filtered_box.right,
+        //                           result->filtered_box.bottom),
+        //                 cv::Scalar(0, 0, 255), 2);
+        // }
           
         //   // 计算筛选区域
         //   int region_top = result->height * 2 / 7;
@@ -62,28 +67,28 @@ int main() {
         //   std::cout << "⚠️ 帧 " << result->frame_idx << " - 未找到符合条件的目标框" << std::endl;
         // }
         
-        for (auto box : result->track_results) {
-          // 在图像上绘制检测框
-          cv::rectangle(*result->imageMat, cv::Point(box.left, box.top),
-                        cv::Point(box.right, box.bottom), cv::Scalar(0, 255,
-                        0), 2);
-          int track_id = box.track_id;
-          // Draw track ID above the bounding box
-          cv::putText(*result->imageMat, "ID: " + std::to_string(track_id),
-                      cv::Point(box.left, box.top - 10),
-                      cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 255, 0),
-                      2);
-        }
+        // for (auto box : result->track_results) {
+        //   // 在图像上绘制检测框
+        //   cv::rectangle(*result->imageMat, cv::Point(box.left, box.top),
+        //                 cv::Point(box.right, box.bottom), cv::Scalar(0, 255,
+        //                 0), 2);
+        //   int track_id = box.track_id;
+        //   // Draw track ID above the bounding box
+        //   cv::putText(*result->imageMat, "ID: " + std::to_string(track_id),
+        //               cv::Point(box.left, box.top - 10),
+        //               cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 255, 0),
+        //               2);
+        // }
 
         // auto end_time = std::chrono::high_resolution_clock::now();
         // auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
         //     end_time - start_time);
 
         // // 保存处理后的帧 - 使用原始帧序号命名
-        std::string output_filename =
-            "outs/output_frame_" + std::to_string(result->frame_idx) +
-            ".jpg";
-        cv::imwrite(output_filename, *result->imageMat);
+        // std::string output_filename =
+        //     "outs/output_frame_" + std::to_string(result->frame_idx) +
+        //     ".jpg";
+        // cv::imwrite(output_filename, *result->imageMat);
 
         has_result = true;
         processed_count++;

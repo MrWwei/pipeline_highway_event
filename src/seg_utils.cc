@@ -1,7 +1,5 @@
 #include "seg_utils.h"
-
-EmergencyLaneResult get_Emergency_Lane(const std::vector<uint8_t> &mask,
-                                       int height, int width, double car_width,
+EmergencyLaneResult get_Emergency_Lane(const cv::Mat &mask_mat, double car_width,
                                        double car_low_y,
                                        float times_car_width) {
   /**
@@ -23,11 +21,10 @@ EmergencyLaneResult get_Emergency_Lane(const std::vector<uint8_t> &mask,
     return result;
   }
 
-  // 将 std::vector<uint8_t> 转换为 cv::Mat
-  cv::Mat mask_mat(height, width, CV_8UC1, const_cast<uint8_t *>(mask.data()));
 
   double level_width = 0;
-
+  int height = mask_mat.rows;
+  int width = mask_mat.cols;
   // 获取白色区域在car_low_y位置的宽度
   int car_low_y_int = static_cast<int>(car_low_y);
   if (car_low_y_int >= height) {
@@ -96,11 +93,9 @@ EmergencyLaneResult get_Emergency_Lane(const std::vector<uint8_t> &mask,
       start_col = white_indices.front();
       end_col = white_indices.back();
 
-      // 左右边界点
       left_border_points.push_back(Point(start_col, y));
       right_border_points.push_back(Point(end_col, y));
 
-      // 计算四分之一点
       int left_quarter_col =
           start_col + static_cast<int>((end_col - start_col) * p_interval);
       left_quarter_points.push_back(Point(left_quarter_col, y));
@@ -137,110 +132,7 @@ EmergencyLaneResult get_Emergency_Lane(const std::vector<uint8_t> &mask,
   return result;
 }
 
-EmergencyLaneResult get_Emergency_Lane(const cv::Mat &mask, double car_width,
-                                       double car_low_y,
-                                       float times_car_width) {
-  // 将 cv::Mat 转换为 std::vector<uint8_t>
-  std::vector<uint8_t> mask_vector;
-  if (mask.isContinuous()) {
-    mask_vector.assign(mask.data, mask.data + mask.total());
-  } else {
-    mask_vector.reserve(mask.rows * mask.cols);
-    for (int i = 0; i < mask.rows; i++) {
-      for (int j = 0; j < mask.cols; j++) {
-        mask_vector.push_back(mask.at<uint8_t>(i, j));
-      }
-    }
-  }
 
-  return get_Emergency_Lane(mask_vector, mask.rows, mask.cols, car_width,
-                            car_low_y, times_car_width);
-}
-
-EmergencyLaneResult get_Emergency_Lane(const cv::Mat &mask, float p_interval) {
-  // 根据分割图得到双向的应急车道线，并返回中间区域
-  std::vector<Point> left_border_points;
-  std::vector<Point> right_border_points;
-  std::vector<Point> left_quarter_points;
-  std::vector<Point> right_quarter_points;
-
-  // const double p_interval = 0.25; // 四分之一点的比例
-
-  int height = mask.rows;
-  int width = mask.cols;
-
-  // 检查最后一行是否有白色像素
-  cv::Mat last_row = mask.row(height - 1);
-  std::vector<int> white_indices;
-  for (int col = 0; col < width; col++) {
-    if (last_row.at<uchar>(col) == 255) {
-      white_indices.push_back(col);
-    }
-  }
-
-  if (white_indices.empty()) {
-    return EmergencyLaneResult(); // 返回空结果
-  }
-
-  int start_col = white_indices.front();
-  int end_col = white_indices.back();
-
-  // 遍历每一行
-  for (int y = 0; y < height; y++) {
-    white_indices.clear();
-
-    // 找到当前行的白色像素
-    for (int col = 0; col < width; col++) {
-      if (mask.at<uchar>(y, col) == 255) {
-        white_indices.push_back(col);
-      }
-    }
-
-    if (!white_indices.empty()) {
-      start_col = white_indices.front();
-      end_col = white_indices.back();
-
-      // 左右边界点
-      left_border_points.push_back(Point(start_col, y));
-      right_border_points.push_back(Point(end_col, y));
-
-      // 计算四分之一点
-      int left_quarter_col =
-          start_col + static_cast<int>((end_col - start_col) * p_interval);
-      left_quarter_points.push_back(Point(left_quarter_col, y));
-
-      int right_quarter_col =
-          end_col - static_cast<int>((end_col - start_col) * p_interval);
-      right_quarter_points.push_back(Point(right_quarter_col, y));
-    }
-  }
-
-  // 构建结果
-  EmergencyLaneResult result;
-  result.left_quarter_points = left_quarter_points;
-  result.right_quarter_points = right_quarter_points;
-
-  // 构建左车道区域 (left_border_points + left_quarter_points[::-1])
-  result.left_lane_region = left_border_points;
-  result.left_lane_region.insert(result.left_lane_region.end(),
-                                 left_quarter_points.rbegin(),
-                                 left_quarter_points.rend());
-
-  // 构建右车道区域 (right_border_points + right_quarter_points[::-1])
-  result.right_lane_region = right_border_points;
-  result.right_lane_region.insert(result.right_lane_region.end(),
-                                  right_quarter_points.rbegin(),
-                                  right_quarter_points.rend());
-
-  // 构建中间车道区域 (left_quarter_points + right_quarter_points[::-1])
-  result.middle_lane_region = left_quarter_points;
-  result.middle_lane_region.insert(result.middle_lane_region.end(),
-                                   right_quarter_points.rbegin(),
-                                   right_quarter_points.rend());
-
-  result.is_valid = true;
-  return result;
-}
 
 DetectRegion crop_detect_region_optimized(const cv::Mat &img, int height,
                                           int width) {
@@ -431,29 +323,29 @@ void drawEmergencyLaneQuarterPoints(cv::Mat &image,
     return;
   }
 
-  // 绘制左侧四分之一点
-  if (!emergency_lane.left_quarter_points.empty()) {
-    for (const auto &point : emergency_lane.left_quarter_points) {
-      // 检查点是否在图像范围内
-      if (point.x >= 0 && point.x < image.cols && point.y >= 0 &&
-          point.y < image.rows) {
-        cv::circle(image, cv::Point(point.x, point.y), point_size, left_color,
-                   -1);
-      }
-    }
-  }
+  // // 绘制左侧四分之一点
+  // if (!emergency_lane.left_quarter_points.empty()) {
+  //   for (const auto &point : emergency_lane.left_quarter_points) {
+  //     // 检查点是否在图像范围内
+  //     if (point.x >= 0 && point.x < image.cols && point.y >= 0 &&
+  //         point.y < image.rows) {
+  //       cv::circle(image, cv::Point(point.x, point.y), point_size, left_color,
+  //                  -1);
+  //     }
+  //   }
+  // }
 
-  // 绘制右侧四分之一点
-  if (!emergency_lane.right_quarter_points.empty()) {
-    for (const auto &point : emergency_lane.right_quarter_points) {
-      // 检查点是否在图像范围内
-      if (point.x >= 0 && point.x < image.cols && point.y >= 0 &&
-          point.y < image.rows) {
-        cv::circle(image, cv::Point(point.x, point.y), point_size, right_color,
-                   -1);
-      }
-    }
-  }
+  // // 绘制右侧四分之一点
+  // if (!emergency_lane.right_quarter_points.empty()) {
+  //   for (const auto &point : emergency_lane.right_quarter_points) {
+  //     // 检查点是否在图像范围内
+  //     if (point.x >= 0 && point.x < image.cols && point.y >= 0 &&
+  //         point.y < image.rows) {
+  //       cv::circle(image, cv::Point(point.x, point.y), point_size, right_color,
+  //                  -1);
+  //     }
+  //   }
+  // }
 
   // 可选：绘制连接线来显示车道线
   if (!emergency_lane.left_quarter_points.empty() &&

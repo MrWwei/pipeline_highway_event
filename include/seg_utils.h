@@ -66,9 +66,6 @@ struct DetectionBox {
  * @param car_low_y 车辆最低位置y坐标
  * @return 应急车道线相关区域
  */
-EmergencyLaneResult get_Emergency_Lane(const std::vector<uint8_t> &mask,
-                                       int height, int width, double car_width,
-                                       double car_low_y);
 
 /**
  * @brief 根据分割图得到双向的应急车道线（cv::Mat版本）
@@ -81,12 +78,6 @@ EmergencyLaneResult get_Emergency_Lane(const cv::Mat &mask, double car_width,
                                        double car_low_y,
                                        float times_car_width = 2.0);
 
-/**
- * @brief 根据分割图得到双向的应急车道线（使用固定参数）
- * @param mask 分割掩码图像
- * @return 应急车道线相关区域
- */
-EmergencyLaneResult get_Emergency_Lane(const cv::Mat &mask);
 
 /**
  * @brief 优化后的crop_detect_region函数
