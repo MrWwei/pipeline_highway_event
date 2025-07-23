@@ -6,6 +6,16 @@
 #include <string>
 #include <vector>
 
+// 目标状态枚举
+enum class ObjectStatus {
+  NORMAL = 0,                 // 正常状态
+  PARKING_LANE = 1,           // 违停
+  PARKING_EMERGENCY_LANE = 2, // 应急车道停车
+  OCCUPY_EMERGENCY_LANE = 3,  // 占用应急车道
+  WALK_HIGHWAY = 4,           // 高速行人
+  HIGHWAY_JAM = 5,            // 高速拥堵
+  TRAFFIC_ACCIDENT = 6        // 交通事故
+};
 /**
  * 图像数据结构，用于在流水线各阶段之间传递数据
  */
@@ -38,6 +48,7 @@ struct ImageData {
     float confidence;
     int class_id;
     int track_id;
+    ObjectStatus status; // 目标状态
   };
   std::vector<BoundingBox> detection_results;
   std::vector<BoundingBox> track_results;

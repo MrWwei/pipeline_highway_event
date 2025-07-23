@@ -47,4 +47,7 @@ private:
   void
   drawEmergencyLaneQuarterPoints(cv::Mat &image,
                                  const EmergencyLaneResult &emergency_lane);
+  ObjectStatus
+  determineObjectStatus(const ImageData::BoundingBox &box,
+                        const EmergencyLaneResult &emergency_lane);
 };

@@ -104,6 +104,12 @@ void BoxFilter::perform_box_filtering(ImageDataPtr image, int thread_id) {
       point.x = static_cast<int>(point.x * image->width / static_cast<double>(image->mask_width));
       point.y = static_cast<int>(point.y * image->height / static_cast<double>(image->mask_height));
     } 
+    // 判断车辆是否在应急车道内
+    for(auto &track_box:image->track_results) {
+      track_box.status = determineObjectStatus(track_box, eRes);
+
+    }
+
     // drawEmergencyLaneQuarterPoints(*image->imageMat, eRes);
     // cv::imwrite("mask_" + std::to_string(image->frame_idx) + ".jpg", *image->imageMat);
     // exit(0);
@@ -111,14 +117,14 @@ void BoxFilter::perform_box_filtering(ImageDataPtr image, int thread_id) {
 
 
 
-    std::cout << "✅ 找到宽度最小的目标框: [" 
-              << min_width_box->left << ", " << min_width_box->top 
-              << ", " << min_width_box->right << ", " << min_width_box->bottom 
-              << "] 宽度: " << box_width << "px" << std::endl;
+    // std::cout << "✅ 找到宽度最小的目标框: [" 
+    //           << min_width_box->left << ", " << min_width_box->top 
+    //           << ", " << min_width_box->right << ", " << min_width_box->bottom 
+    //           << "] 宽度: " << box_width << "px" << std::endl;
   } else {
     // 全图范围内也没有目标框
     image->has_filtered_box = false;
-    std::cout << "⚠️ 全图范围内都没有找到目标框" << std::endl;
+    // std::cout << "⚠️ 全图范围内都没有找到目标框" << std::endl;
   }
   
   // 设置promise完成 - 先检查是否已经设置
@@ -211,4 +217,35 @@ void
       cv::polylines(image, right_contour, true, cv::Scalar(255, 0, 255),
                     2); // 紫色线条
     }
+  }
+
+  ObjectStatus
+  BoxFilter::determineObjectStatus(const ImageData::BoundingBox &box,
+                        const EmergencyLaneResult &emergency_lane) {
+    if (!emergency_lane.is_valid) {
+      return ObjectStatus::NORMAL;
+    }
+
+    // 检查目标框的左下角和右下角点
+    PointT left_bottom(box.left, box.top);
+    PointT right_bottom(box.right, box.bottom);
+
+    // 判断点是否在应急车道区域内
+    auto is_in_region = [](const std::vector<PointT> &region, const PointT &pt) {
+      if (region.size() < 3)
+        return false;
+
+      std::vector<cv::Point> contour;
+      for (const auto &p : region) {
+        contour.emplace_back(p.x, p.y);
+      }
+      return cv::pointPolygonTest(contour, cv::Point2f(pt.x, pt.y), false) >= 0;
+    };
+
+    if (is_in_region(emergency_lane.left_lane_region, left_bottom) ||
+        is_in_region(emergency_lane.right_lane_region, right_bottom)) {
+      return ObjectStatus::OCCUPY_EMERGENCY_LANE;
+    }
+
+    return ObjectStatus::NORMAL;
   }

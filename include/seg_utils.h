@@ -6,20 +6,20 @@
 #include <opencv2/opencv.hpp>
 #include <vector>
 
-struct Point {
+struct PointT {
   int x, y;
-  Point(int x = 0, int y = 0) : x(x), y(y) {}
-  bool operator==(const Point &other) const {
+  PointT(int x = 0, int y = 0) : x(x), y(y) {}
+  bool operator==(const PointT &other) const {
     return x == other.x && y == other.y;
   }
 };
 
 struct EmergencyLaneResult {
-  std::vector<Point> left_quarter_points;
-  std::vector<Point> right_quarter_points;
-  std::vector<Point> left_lane_region;
-  std::vector<Point> right_lane_region;
-  std::vector<Point> middle_lane_region;
+  std::vector<PointT> left_quarter_points;
+  std::vector<PointT> right_quarter_points;
+  std::vector<PointT> left_lane_region;
+  std::vector<PointT> right_lane_region;
+  std::vector<PointT> middle_lane_region;
   bool is_valid;
 
   EmergencyLaneResult() : is_valid(false) {}

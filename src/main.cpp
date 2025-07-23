@@ -35,6 +35,20 @@ int main() {
 
             // 尝试获取一个结果
       if (pipeline.get_final_result(result)) {
+        // for(auto &box : result->track_results) {
+        //   // 在图像上绘制检测框
+          
+        //   int track_id = box.track_id;
+        //   cv::Scalar color;
+        //   // Draw track ID above the bounding box
+        //   if(box.status == ObjectStatus::OCCUPY_EMERGENCY_LANE) {
+        //     color = cv::Scalar(0, 0, 255); // 红色
+        //   } else {
+        //     color = cv::Scalar(0, 255, 0); // 绿色
+        //   }
+          
+        //   cv::rectangle(*result->imageMat, cv::Point(box.left, box.top),
+        //                 cv::Point(box.right, box.bottom), color, 2);}
 
         // 显示筛选出的目标框信息
         // if (result->has_filtered_box) {
@@ -104,7 +118,7 @@ int main() {
   });
   // 打开视频文件
   cv::VideoCapture cap(
-      "/home/ubuntu/Desktop/DJI_20250501091754_0003_V.MP4"); // 替换为你的视频文件路径
+      "/home/ubuntu/Desktop/DJI_20250501091406_0001.mp4"); // 替换为你的视频文件路径
   if (!cap.isOpened()) {
     std::cerr << "Error: 无法打开视频文件" << std::endl;
     return -1;
