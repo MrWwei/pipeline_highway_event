@@ -10,9 +10,16 @@
 #include <vector>
 
 int main() {
-  // 创建流水线管理器 - 配置线程数量
-  // 语义分割：8个线程，Mask后处理：20个线程，目标检测：8个线程，目标跟踪：1个线程，目标框筛选：4个线程
-  PipelineManager pipeline(8, 8, 8, 1, 4);
+  // 创建流水线配置
+  PipelineConfig config;
+  config.semantic_threads = 8;
+  config.mask_postprocess_threads = 8;
+  config.detection_threads = 8;
+  config.tracking_threads = 1;
+  config.box_filter_threads = 4;
+  
+  // 创建流水线管理器
+  PipelineManager pipeline(config);
 
   // 启动流水线
   pipeline.start();

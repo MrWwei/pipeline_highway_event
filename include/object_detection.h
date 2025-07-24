@@ -3,6 +3,10 @@
 #include "detect.h"
 #include "image_processor.h"
 #include "thread_safe_queue.h"
+#include <string>
+
+// 前向声明
+struct PipelineConfig;
 
 /**
  * 目标检测模块
@@ -10,7 +14,7 @@
  */
 class ObjectDetection : public ImageProcessor {
 public:
-  ObjectDetection(int num_threads = 1);
+  ObjectDetection(int num_threads = 1, const PipelineConfig* config = nullptr);
   virtual ~ObjectDetection();
 
   // 重写add_image以直接处理而不使用基类工作线程

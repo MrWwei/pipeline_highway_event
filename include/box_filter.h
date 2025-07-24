@@ -4,6 +4,9 @@
 #include "thread_safe_queue.h"
 #include "seg_utils.h"
 
+// 前向声明
+struct PipelineConfig;
+
 /**
  * 目标框筛选处理器
  * 负责从检测结果中筛选出特定区域内宽度最小的目标框
@@ -13,7 +16,7 @@
 class BoxFilter : public ImageProcessor {
 public:
   // 构造函数，可指定线程数量，默认为1
-  BoxFilter(int num_threads = 1);
+  BoxFilter(int num_threads = 1, const PipelineConfig* config = nullptr);
 
   // 虚析构函数
   virtual ~BoxFilter();
@@ -30,6 +33,10 @@ protected:
                                       int thread_id) override;
 
 private:
+  // 配置参数
+  float top_fraction_;     // 筛选区域上边界比例
+  float bottom_fraction_;  // 筛选区域下边界比例
+  
   // 具体的目标框筛选算法实现
   void perform_box_filtering(ImageDataPtr image, int thread_id);
   

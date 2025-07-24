@@ -1,12 +1,22 @@
 #include "box_filter.h"
+#include "pipeline_manager.h"
 #include <chrono>
 #include <future>
 #include <iostream>
 #include <limits>
 
 
-BoxFilter::BoxFilter(int num_threads)
+BoxFilter::BoxFilter(int num_threads, const PipelineConfig* config)
     : ImageProcessor(num_threads, "目标框筛选") {
+  // 使用配置参数，如果没有提供则使用默认值
+  if (config) {
+    top_fraction_ = config->box_filter_top_fraction;
+    bottom_fraction_ = config->box_filter_bottom_fraction;
+  } else {
+    // 默认配置
+    top_fraction_ = 4.0f / 7.0f;
+    bottom_fraction_ = 8.0f / 9.0f;
+  }
   // std::cout << "🔍 目标框筛选模块初始化完成" << std::endl;
 }
 
@@ -53,10 +63,10 @@ void BoxFilter::perform_box_filtering(ImageDataPtr image, int thread_id) {
     return;
   }
   
-  // 计算七分之二到七分之六的区域
+  // 使用配置的区域比例
   int image_height = image->height;
-  int region_top = image_height * 4 / 7;      // 七分之二处
-  int region_bottom = image_height * 8 / 9;   // 七分之六处
+  int region_top = image_height * top_fraction_;
+  int region_bottom = image_height * bottom_fraction_;
   
   // std::cout << "🎯 筛选区域: [" << region_top << ", " << region_bottom 
   //           << "] (图像高度: " << image_height << ")" << std::endl;

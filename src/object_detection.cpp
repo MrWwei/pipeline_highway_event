@@ -1,33 +1,51 @@
 #include "object_detection.h"
+#include "pipeline_manager.h"
 #include <chrono>
 #include <future>
 #include <iostream>
 #include <random>
 #include <thread>
 const int det_batch_size = 8;
-ObjectDetection::ObjectDetection(int num_threads)
+ObjectDetection::ObjectDetection(int num_threads, const PipelineConfig* config)
     : ImageProcessor(0, "目标检测"), stop_worker_(false) { // 设置基类线程数为0
 
   // 初始化处理队列
   detection_queue_ =
       std::make_unique<ThreadSafeQueue<ImageDataPtr>>(100); // 设置队列容量为100
 
-  AlgorConfig config;
-  config.algorName_ = "object_detect";
-  config.model_path = "car_detect.onnx";
-  config.img_size = 640;
-  config.conf_thresh = 0.25f;
-  config.iou_thresh = 0.2f;
-  config.max_batch_size = det_batch_size;
-  config.min_opt = 1;
-  config.mid_opt = 16;
-  config.max_opt = 32;
-  config.is_ultralytics = 1;
-  config.gpu_id = 0;
+  AlgorConfig algor_config;
+  
+  // 使用配置参数，如果没有提供则使用默认值
+  if (config) {
+    algor_config.algorName_ = config->det_algor_name;
+    algor_config.model_path = config->det_model_path;
+    algor_config.img_size = config->det_img_size;
+    algor_config.conf_thresh = config->det_conf_thresh;
+    algor_config.iou_thresh = config->det_iou_thresh;
+    algor_config.max_batch_size = config->det_max_batch_size;
+    algor_config.min_opt = config->det_min_opt;
+    algor_config.mid_opt = config->det_mid_opt;
+    algor_config.max_opt = config->det_max_opt;
+    algor_config.is_ultralytics = config->det_is_ultralytics;
+    algor_config.gpu_id = config->det_gpu_id;
+  } else {
+    // 默认配置
+    algor_config.algorName_ = "object_detect";
+    algor_config.model_path = "car_detect.onnx";
+    algor_config.img_size = 640;
+    algor_config.conf_thresh = 0.25f;
+    algor_config.iou_thresh = 0.2f;
+    algor_config.max_batch_size = det_batch_size;
+    algor_config.min_opt = 1;
+    algor_config.mid_opt = 16;
+    algor_config.max_opt = 32;
+    algor_config.is_ultralytics = 1;
+    algor_config.gpu_id = 0;
+  }
 
   // 初始化检测器
   car_detect_instance_ = xtkj::createDetect();
-  car_detect_instance_->init(config);
+  car_detect_instance_->init(algor_config);
   // std::cout << "🔍 目标检测模块初始化完成（正常模式）" << std::endl;
 
   // 启动工作线程

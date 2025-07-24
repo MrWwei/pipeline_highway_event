@@ -4,6 +4,10 @@
 #include "road_seg.h"
 #include "seg_utils.h"
 #include <future>
+#include <string>
+
+// 前向声明
+struct PipelineConfig;
 
 /**
  * 语义分割处理器
@@ -13,7 +17,7 @@
 class SemanticSegmentation : public ImageProcessor {
 public:
   // 构造函数，可指定线程数量，默认为1
-  SemanticSegmentation(int num_threads = 1);
+  SemanticSegmentation(int num_threads = 1, const PipelineConfig* config = nullptr);
 
   // 析构函数（自定义实现，负责线程清理）
   virtual ~SemanticSegmentation();

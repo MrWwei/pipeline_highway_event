@@ -27,6 +27,28 @@ struct HighwayEventConfig {
     int add_timeout_ms = 5000;         // 添加数据超时时间(毫秒)
     int get_result_timeout_ms = 10000; // 获取结果超时时间(毫秒)
     
+    // 语义分割模型配置
+    std::string seg_model_path = "seg_model";               // 语义分割模型路径
+    bool seg_enable_show = false;                           // 是否启用分割结果可视化
+    std::string seg_show_image_path = "./segmentation_results/"; // 分割结果图像保存路径
+    
+    // 目标检测算法配置
+    std::string det_algor_name = "object_detect";           // 算法名称
+    std::string det_model_path = "car_detect.onnx";         // 目标检测模型路径
+    int det_img_size = 640;                                 // 输入图像尺寸
+    float det_conf_thresh = 0.25f;                          // 置信度阈值
+    float det_iou_thresh = 0.2f;                            // NMS IoU阈值
+    int det_max_batch_size = 16;                            // 最大批处理大小
+    int det_min_opt = 1;                                    // 最小优化尺寸
+    int det_mid_opt = 16;                                   // 中等优化尺寸
+    int det_max_opt = 32;                                   // 最大优化尺寸
+    int det_is_ultralytics = 1;                             // 是否使用Ultralytics格式
+    int det_gpu_id = 0;                                     // GPU设备ID
+    
+    // 目标框筛选配置
+    float box_filter_top_fraction = 4.0f / 7.0f;           // 筛选区域上边界比例
+    float box_filter_bottom_fraction = 8.0f / 9.0f;        // 筛选区域下边界比例
+    
     // 调试配置
     bool enable_debug_log = false;     // 是否启用调试日志
     bool enable_status_print = false;  // 是否启用状态打印

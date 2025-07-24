@@ -5,18 +5,14 @@
 #include <thread>
 #include <future>
 
-PipelineManager::PipelineManager(int semantic_threads,
-                                 int mask_postprocess_threads,
-                                 int detection_threads,
-                                 int tracking_threads,
-                                 int box_filter_threads)
-    : running_(false), next_frame_idx_(0) {
-  semantic_seg_ = std::make_unique<SemanticSegmentation>(semantic_threads);
+PipelineManager::PipelineManager(const PipelineConfig& config)
+    : running_(false), next_frame_idx_(0), final_results_(config.final_result_queue_capacity) {
+  semantic_seg_ = std::make_unique<SemanticSegmentation>(config.semantic_threads, &config);
   mask_postprocess_ =
-      std::make_unique<MaskPostProcess>(mask_postprocess_threads);
-  object_det_ = std::make_unique<ObjectDetection>(detection_threads);
-  object_track_ = std::make_unique<ObjectTracking>(tracking_threads);
-  box_filter_ = std::make_unique<BoxFilter>(box_filter_threads);
+      std::make_unique<MaskPostProcess>(config.mask_postprocess_threads);
+  object_det_ = std::make_unique<ObjectDetection>(config.detection_threads, &config);
+  object_track_ = std::make_unique<ObjectTracking>(config.tracking_threads);
+  box_filter_ = std::make_unique<BoxFilter>(config.box_filter_threads, &config);
 }
 PipelineManager::~PipelineManager() { stop(); }
 

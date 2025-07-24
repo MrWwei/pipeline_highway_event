@@ -19,14 +19,33 @@ bool HighwayEventDetector::initialize(const HighwayEventConfig& config) {
     try {
         config_ = config;
         
+        // 创建流水线配置
+        PipelineConfig pipeline_config;
+        pipeline_config.semantic_threads = config_.semantic_threads;
+        pipeline_config.mask_postprocess_threads = config_.mask_threads;
+        pipeline_config.detection_threads = config_.detection_threads;
+        pipeline_config.tracking_threads = config_.tracking_threads;
+        pipeline_config.box_filter_threads = config_.filter_threads;
+        pipeline_config.seg_model_path = config_.seg_model_path;
+        pipeline_config.seg_enable_show = config_.seg_enable_show;
+        pipeline_config.seg_show_image_path = config_.seg_show_image_path;
+        pipeline_config.det_algor_name = config_.det_algor_name;
+        pipeline_config.det_model_path = config_.det_model_path;
+        pipeline_config.det_img_size = config_.det_img_size;
+        pipeline_config.det_conf_thresh = config_.det_conf_thresh;
+        pipeline_config.det_iou_thresh = config_.det_iou_thresh;
+        pipeline_config.det_max_batch_size = config_.det_max_batch_size;
+        pipeline_config.det_min_opt = config_.det_min_opt;
+        pipeline_config.det_mid_opt = config_.det_mid_opt;
+        pipeline_config.det_max_opt = config_.det_max_opt;
+        pipeline_config.det_is_ultralytics = config_.det_is_ultralytics;
+        pipeline_config.det_gpu_id = config_.det_gpu_id;
+        pipeline_config.box_filter_top_fraction = config_.box_filter_top_fraction;
+        pipeline_config.box_filter_bottom_fraction = config_.box_filter_bottom_fraction;
+        pipeline_config.final_result_queue_capacity = config_.result_queue_capacity;
+        
         // 创建流水线管理器
-        pipeline_manager_ = std::make_unique<PipelineManager>(
-            config_.semantic_threads,
-            config_.mask_threads,
-            config_.detection_threads,
-            config_.tracking_threads,
-            config_.filter_threads
-        );
+        pipeline_manager_ = std::make_unique<PipelineManager>(pipeline_config);
         
         is_initialized_.store(true);
         

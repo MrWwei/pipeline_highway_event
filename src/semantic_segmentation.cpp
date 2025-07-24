@@ -1,4 +1,5 @@
 #include "semantic_segmentation.h"
+#include "pipeline_manager.h"
 #include <chrono>
 #include <future>
 #include <iostream>
@@ -16,7 +17,7 @@ SemanticSegmentation::~SemanticSegmentation() {
   delete road_seg_instance_;
 }
 
-SemanticSegmentation::SemanticSegmentation(int num_threads)
+SemanticSegmentation::SemanticSegmentation(int num_threads, const PipelineConfig* config)
     : ImageProcessor(num_threads, "语义分割"), stop_worker_(false) {
   // 初始化处理队列
   segmentation_queue_ =
@@ -24,9 +25,18 @@ SemanticSegmentation::SemanticSegmentation(int num_threads)
 
   // 初始化模型
   SegInitParams init_params;
-  init_params.model_path = "seg_model";
-  init_params.enable_show = false; // 启用可视化
-  init_params.seg_show_image_path = "./segmentation_results/";
+  
+  // 使用配置参数，如果没有提供则使用默认值
+  if (config) {
+    init_params.model_path = config->seg_model_path;
+    init_params.enable_show = config->seg_enable_show;
+    init_params.seg_show_image_path = config->seg_show_image_path;
+  } else {
+    // 默认配置
+    init_params.model_path = "seg_model";
+    init_params.enable_show = false;
+    init_params.seg_show_image_path = "./segmentation_results/";
+  }
 
   road_seg_instance_ = createRoadSeg();
   int init_result = road_seg_instance_->init_seg(init_params);
