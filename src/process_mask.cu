@@ -108,7 +108,7 @@ __global__ void flood_fill_step(uint8_t *mask, int w, int h, bool *changed)
     *changed = true;
 }
 /* ================= 主接口 ================= */
-cv::Mat remove_small_white_regions_cuda1(const cv::Mat &src)
+cv::Mat remove_small_white_regions_cuda(const cv::Mat &src)
 {
     CV_Assert(src.type() == CV_8UC1);
     const int w = src.cols;

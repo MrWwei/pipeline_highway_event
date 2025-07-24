@@ -3,6 +3,7 @@
 #include "image_processor.h"
 #include "road_seg.h"
 #include "seg_utils.h"
+#include <future>
 
 /**
  * 语义分割处理器
@@ -41,14 +42,39 @@ public:
 
   // 停止处理线程
   void stop() override {
+    std::cout << "  停止语义分割工作线程..." << std::endl;
     stop_worker_ = true;
-    if (worker_thread_.joinable()) {
-      if (!segmentation_queue_->empty()) {
-        std::cout << "Waiting for segmentation queue to empty..." << std::endl;
-      }
-      worker_thread_.join();
+    
+    // 向队列添加多个空数据来确保唤醒所有可能在等待的操作
+    for (int i = 0; i < 5; ++i) {
+      segmentation_queue_->push(nullptr);
     }
+    
+    std::cout << "  等待语义分割工作线程退出..." << std::endl;
+    if (worker_thread_.joinable()) {
+      worker_thread_.join();
+      std::cout << "  ✅ 语义分割工作线程已正常退出" << std::endl;
+    }
+    
+    // 清空队列中剩余的图像，避免阻塞
+    std::cout << "  清理语义分割队列..." << std::endl;
+    ImageDataPtr remaining_img;
+    while (segmentation_queue_->try_pop(remaining_img)) {
+      if (remaining_img) {
+        try {
+          if (remaining_img->segmentation_promise && 
+              remaining_img->segmentation_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+            remaining_img->segmentation_promise->set_value();
+          }
+        } catch (const std::future_error&) {
+          // Promise已经被设置，忽略
+        }
+      }
+    }
+    
+    std::cout << "  调用基类停止..." << std::endl;
     ImageProcessor::stop(); // 调用基类的stop
+    std::cout << "  语义分割模块停止完成" << std::endl;
   }
 
 private:

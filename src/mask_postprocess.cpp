@@ -35,7 +35,7 @@ void MaskPostProcess::process_image(ImageDataPtr image, int thread_id) {
               std::make_exception_ptr(std::runtime_error("语义分割结果无效")));
         }
       } catch (const std::future_error& e) {
-        std::cout << "⚠️ Promise异常已被设置，帧 " << image->frame_idx << ": " << e.what() << std::endl;
+        // std::cout << "⚠️ Promise异常已被设置，帧 " << image->frame_idx << ": " << e.what() << std::endl;
       }
       return;
     }
@@ -48,7 +48,7 @@ void MaskPostProcess::process_image(ImageDataPtr image, int thread_id) {
         image->mask_postprocess_promise->set_exception(std::current_exception());
       }
     } catch (const std::future_error& e) {
-      std::cout << "⚠️ Promise异常已被设置，帧 " << image->frame_idx << ": " << e.what() << std::endl;
+      // std::cout << "⚠️ Promise异常已被设置，帧 " << image->frame_idx << ": " << e.what() << std::endl;
     }
     return;
   }
@@ -57,12 +57,12 @@ void MaskPostProcess::process_image(ImageDataPtr image, int thread_id) {
 }
 
 void MaskPostProcess::on_processing_start(ImageDataPtr image, int thread_id) {
-  std::cout << "🔍 Mask后处理准备开始 (线程 " << thread_id << ", 帧 " << image->frame_idx << ")" << std::endl;
+  // std::cout << "🔍 Mask后处理准备开始 (线程 " << thread_id << ", 帧 " << image->frame_idx << ")" << std::endl;
 }
 
 void MaskPostProcess::on_processing_complete(ImageDataPtr image,
                                              int thread_id) {
-  std::cout << "🔍 Mask后处理完成 (线程 " << thread_id << ", 帧 " << image->frame_idx << ")" << std::endl;
+  // std::cout << "🔍 Mask后处理完成 (线程 " << thread_id << ", 帧 " << image->frame_idx << ")" << std::endl;
 }
 
 void MaskPostProcess::perform_mask_postprocess(ImageDataPtr image,
@@ -78,7 +78,7 @@ void MaskPostProcess::perform_mask_postprocess(ImageDataPtr image,
   // 去除小的白色区域
   // cv::threshold(mask, mask, 0, 255, cv::THRESH_BINARY);
 
-  image->mask = remove_small_white_regions_cuda1(mask);
+  image->mask = remove_small_white_regions_cuda(mask);
   cv::threshold(image->mask, image->mask, 0, 255, cv::THRESH_BINARY);
   // 获取roi
 
@@ -133,6 +133,6 @@ void MaskPostProcess::perform_mask_postprocess(ImageDataPtr image,
       image->mask_postprocess_promise->set_value();
     }
   } catch (const std::future_error& e) {
-    std::cout << "⚠️ Promise已被设置，帧 " << image->frame_idx << ": " << e.what() << std::endl;
+    // std::cout << "⚠️ Promise已被设置，帧 " << image->frame_idx << ": " << e.what() << std::endl;
   }
 }

@@ -10,7 +10,7 @@ ObjectTracking::ObjectTracking(int num_threads)
   
   // 调试模式：跳过跟踪器初始化
   car_track_instance_ = xtkj::createTracker(30, 30, 0.5, 0.6, 0.8);
-  std::cout << "🚫 目标跟踪模块已禁用（调试模式），线程数: " << num_threads << std::endl;
+  // std::cout << "🚫 目标跟踪模块已禁用（调试模式），线程数: " << num_threads << std::endl;
   
   // 启动顺序处理工作线程
   worker_thread_ = std::thread(&ObjectTracking::sequential_tracking_worker, this);
@@ -19,7 +19,17 @@ ObjectTracking::ObjectTracking(int num_threads)
 ObjectTracking::~ObjectTracking() {
   stop_worker_ = true;
   if (worker_thread_.joinable()) {
-    worker_thread_.join();
+    // 使用 future 来实现超时等待
+    auto future = std::async(std::launch::async, [this]() {
+      if (worker_thread_.joinable()) {
+        worker_thread_.join();
+      }
+    });
+    
+    if (future.wait_for(std::chrono::seconds(5)) == std::future_status::timeout) {
+      std::cout << "⚠️ 目标跟踪工作线程超时，强制分离" << std::endl;
+      worker_thread_.detach();
+    }
   }
   
   if (car_track_instance_) {
@@ -45,12 +55,12 @@ void ObjectTracking::process_image(ImageDataPtr image, int thread_id) {
     }
     
     // 打印最近输入的帧序号窗口
-    std::cout << "🎯 跟踪输入帧序号 [" << image->frame_idx << "] 最近窗口: [";
-    for (size_t i = 0; i < recent_input_frames_.size(); ++i) {
-      if (i > 0) std::cout << ", ";
-      std::cout << recent_input_frames_[i];
-    }
-    std::cout << "] 期望帧: " << next_expected_frame_ << std::endl;
+    // std::cout << "🎯 跟踪输入帧序号 [" << image->frame_idx << "] 最近窗口: [";
+    // for (size_t i = 0; i < recent_input_frames_.size(); ++i) {
+    //   if (i > 0) std::cout << ", ";
+    //   std::cout << recent_input_frames_[i];
+    // }
+    // std::cout << "] 期望帧: " << next_expected_frame_ << std::endl;
     
     pending_images_.push_back(image);
   }
@@ -68,7 +78,7 @@ void ObjectTracking::process_image(ImageDataPtr image, int thread_id) {
         image->tracking_promise->set_exception(std::current_exception());
       }
     } catch (const std::future_error& e) {
-      std::cout << "⚠️ Promise异常已被设置，帧 " << image->frame_idx << ": " << e.what() << std::endl;
+      // std::cout << "⚠️ Promise异常已被设置，帧 " << image->frame_idx << ": " << e.what() << std::endl;
     }
     return;
   }
@@ -88,7 +98,7 @@ void ObjectTracking::process_image(ImageDataPtr image, int thread_id) {
     // for (const auto& img : pending_images_) {
     //   std::cout << img->frame_idx << " ";
     // }
-    std::cout << std::endl;
+    // std::cout << std::endl;
   }
 }
 
@@ -97,12 +107,11 @@ void ObjectTracking::on_processing_start(ImageDataPtr image, int thread_id) {
 }
 
 void ObjectTracking::on_processing_complete(ImageDataPtr image, int thread_id) {
-  // 跟踪特有的后处理
-  std::cout << "✅ 目标跟踪完成，帧 " << image->frame_idx << std::endl;
 }
 
+
 void ObjectTracking::sequential_tracking_worker() {
-  std::cout << "🔄 目标跟踪顺序处理线程启动" << std::endl;
+  // std::cout << "🔄 目标跟踪顺序处理线程启动" << std::endl;
   
   while (!stop_worker_.load()) {
     ImageDataPtr next_image = nullptr;
@@ -120,8 +129,8 @@ void ObjectTracking::sequential_tracking_worker() {
       if (it != pending_images_.end()) {
         next_image = *it;
         pending_images_.erase(it);
-        std::cout << "✅ 找到期望帧 " << next_expected_frame_ 
-                  << "，剩余等待帧数: " << pending_images_.size() << std::endl;
+        // std::cout << "✅ 找到期望帧 " << next_expected_frame_ 
+        //           << "，剩余等待帧数: " << pending_images_.size() << std::endl;
         next_expected_frame_++;
       } else if (!pending_images_.empty()) {
         // 如果没有找到期望的帧，但有其他帧在等待，显示等待状态
@@ -138,8 +147,8 @@ void ObjectTracking::sequential_tracking_worker() {
     }
     
     if (next_image) {
-      std::cout << "🎯 按序处理跟踪，帧 " << next_image->frame_idx 
-                << " (期望序列正确)" << std::endl;
+      // std::cout << "🎯 按序处理跟踪，帧 " << next_image->frame_idx 
+      //           << " (期望序列正确)" << std::endl;
       perform_tracking(next_image);
       
       // 将处理完成的图像添加到输出队列
@@ -150,7 +159,7 @@ void ObjectTracking::sequential_tracking_worker() {
     }
   }
   
-  std::cout << "⏹️ 目标跟踪顺序处理线程结束" << std::endl;
+  // std::cout << "⏹️ 目标跟踪顺序处理线程结束" << std::endl;
 }
 
 void ObjectTracking::perform_tracking(ImageDataPtr image) {
@@ -194,6 +203,6 @@ void ObjectTracking::perform_tracking(ImageDataPtr image) {
       image->tracking_promise->set_value();
     }
   } catch (const std::future_error& e) {
-    std::cout << "⚠️ Promise已被设置，帧 " << image->frame_idx << ": " << e.what() << std::endl;
+    // std::cout << "⚠️ Promise已被设置，帧 " << image->frame_idx << ": " << e.what() << std::endl;
   }
 }

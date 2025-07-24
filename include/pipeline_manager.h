@@ -66,6 +66,14 @@ public:
   // 获取线程配置信息
   void print_thread_info() const;
 
+  // 获取各个队列的大小
+  size_t get_seg_queue_size() const { return semantic_seg_->get_queue_size(); }
+  size_t get_mask_queue_size() const { return mask_postprocess_->get_queue_size(); }
+  size_t get_det_queue_size() const { return object_det_->get_queue_size(); }
+  size_t get_track_queue_size() const { return object_track_->get_queue_size(); }
+  size_t get_filter_queue_size() const { return box_filter_->get_queue_size(); }
+  size_t get_result_queue_size() const { return final_results_.size(); }
+
 private:
   // 协调器线程函数
   void coordinator_thread_func();

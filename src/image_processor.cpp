@@ -2,6 +2,7 @@
 #include <chrono>
 #include <iostream>
 #include <thread>
+#include <future>
 
 ImageProcessor::ImageProcessor(int num_threads, const std::string &name)
     : running_(false), num_threads_(num_threads), processor_name_(name),
@@ -38,15 +39,38 @@ void ImageProcessor::stop() {
     return; // 已经停止
   }
 
+  std::cout << "  停止 " << processor_name_ << " 处理器..." << std::endl;
   running_.store(false);
 
-  // 等待所有工作线程结束
+  // 向输入队列推送空数据来唤醒阻塞的工作线程
+  for (int i = 0; i < num_threads_; ++i) {
+    input_queue_.push(nullptr);
+  }
+
+  std::cout << "  等待 " << processor_name_ << " 工作线程退出..." << std::endl;
+  
+  // 等待所有工作线程结束，添加超时机制
   for (auto &thread : worker_threads_) {
     if (thread.joinable()) {
-      thread.join();
+      // 使用 future 来实现超时等待
+      auto future = std::async(std::launch::async, [&thread]() {
+        if (thread.joinable()) {
+          thread.join();
+        }
+      });
+      
+      if (future.wait_for(std::chrono::seconds(5)) == std::future_status::timeout) {
+        std::cout << "  ⚠️ " << processor_name_ << " 工作线程超时，强制分离" << std::endl;
+        thread.detach();
+      }
     }
   }
   worker_threads_.clear();
+
+  // 清理输入和输出队列
+  std::cout << "  清理 " << processor_name_ << " 队列..." << std::endl;
+  input_queue_.clear();
+  output_queue_.clear();
 
   std::cout << "⏹️ " << processor_name_ << "处理线程已停止" << std::endl;
 }
@@ -58,11 +82,11 @@ void ImageProcessor::add_image(ImageDataPtr image) {
   }
 
   // 检查队列容量
-  size_t current_size = input_queue_.size();
-  if (current_size >= 90) { // 90% 容量警告
-    std::cout << "⚠️ " << processor_name_
-              << " 输入队列接近满容量: " << current_size << "/100" << std::endl;
-  }
+  // size_t current_size = input_queue_.size();
+  // if (current_size >= 90) { // 90% 容量警告
+  //   std::cout << "⚠️ " << processor_name_
+  //             << " 输入队列接近满容量: " << current_size << "/100" << std::endl;
+  // }
   input_queue_.push(image);
 }
 
@@ -91,22 +115,28 @@ void ImageProcessor::worker_thread_func(int thread_id) {
 
   while (running_.load()) {
     ImageDataPtr image;
-
-    if (!input_queue_.empty()) {
-      input_queue_.wait_and_pop(image);
-      if (!image) {
-        std::cerr << "⚠️ [" << processor_name_ << "] 获取到空图像指针"
-                  << std::endl;
-        continue;
+    
+    // 阻塞等待队列中的数据
+    input_queue_.wait_and_pop(image);
+    
+    // 检查是否是停止信号（空数据）
+    if (!image) {
+      if (!running_.load()) {
+        break;  // 收到停止信号，退出循环
       }
-      on_processing_start(image, thread_id);
-
-      // 执行具体的图像处理算法
-      process_image(image, thread_id);
-
-      // 处理后清理
-      on_processing_complete(image, thread_id);
-      output_queue_.push(image);
+      continue;  // 忽略空数据，继续处理
     }
+    
+    on_processing_start(image, thread_id);
+
+    // 执行具体的图像处理算法
+    process_image(image, thread_id);
+
+    // 处理后清理
+    on_processing_complete(image, thread_id);
+    output_queue_.push(image);
   }
+  
+  std::cout << "🔄 " << processor_name_ << "工作线程 " << thread_id << " 退出"
+            << std::endl;
 }

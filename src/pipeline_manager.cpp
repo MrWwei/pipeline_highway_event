@@ -3,6 +3,7 @@
 #include <iostream>
 #include <map>
 #include <thread>
+#include <future>
 
 PipelineManager::PipelineManager(int semantic_threads,
                                  int mask_postprocess_threads,
@@ -25,6 +26,14 @@ void PipelineManager::start() {
   }
 
   running_.store(true);
+  
+  // 重置结果队列状态
+  final_results_.reset();
+  next_frame_idx_ = 0;
+  {
+    std::lock_guard<std::mutex> lock(pending_results_mutex_);
+    pending_results_.clear();
+  }
 
   // 启动各个处理模块
   semantic_seg_->start();
@@ -49,30 +58,60 @@ void PipelineManager::stop() {
     return;
   }
 
+  std::cout << "开始停止流水线..." << std::endl;
   running_.store(false);
 
   // 停止各个处理模块
+  std::cout << "停止语义分割模块..." << std::endl;
   semantic_seg_->stop();
+  std::cout << "停止Mask后处理模块..." << std::endl;
   mask_postprocess_->stop();
+  std::cout << "停止目标检测模块..." << std::endl;
   object_det_->stop();
+  std::cout << "停止目标跟踪模块..." << std::endl;
   object_track_->stop();
+  std::cout << "停止目标框筛选模块..." << std::endl;
   box_filter_->stop();
 
-  // 等待所有线程完成
-  if (seg_to_mask_thread_.joinable()) {
-    seg_to_mask_thread_.join();
-  }
-  if (mask_to_detect_thread_.joinable()) {
-    mask_to_detect_thread_.join();
-  }
-  if (track_to_filter_thread_.joinable()) {
-    track_to_filter_thread_.join();
-  }
-  if (filter_to_final_thread_.joinable()) {
-    filter_to_final_thread_.join();
+  std::cout << "等待协调线程结束..." << std::endl;
+  
+  // 等待所有线程完成，添加超时机制
+  auto join_with_timeout = [](std::thread& t, const std::string& name) {
+    if (t.joinable()) {
+      std::cout << "等待 " << name << " 线程..." << std::endl;
+      
+      // 使用 future 来实现超时等待
+      auto future = std::async(std::launch::async, [&t]() {
+        if (t.joinable()) {
+          t.join();
+        }
+      });
+      
+      if (future.wait_for(std::chrono::seconds(5)) == std::future_status::timeout) {
+        std::cout << "⚠️ " << name << " 线程超时，强制分离" << std::endl;
+        t.detach();
+      } else {
+        std::cout << "✅ " << name << " 线程已正常退出" << std::endl;
+      }
+    }
+  };
+  
+  join_with_timeout(seg_to_mask_thread_, "seg_to_mask");
+  join_with_timeout(mask_to_detect_thread_, "mask_to_detect");
+  join_with_timeout(track_to_filter_thread_, "track_to_filter");
+  join_with_timeout(filter_to_final_thread_, "filter_to_final");
+
+  // 清理流水线管理器自己的队列和资源
+  std::cout << "清理流水线队列和缓存..." << std::endl;
+  final_results_.shutdown(); // 关闭结果队列，唤醒所有等待的线程
+  final_results_.clear();
+  {
+    std::lock_guard<std::mutex> lock(pending_results_mutex_);
+    pending_results_.clear();
   }
 
   std::cout << "⏹️ 停止所有管道处理线程" << std::endl;
+  
 }
 
 void PipelineManager::add_image(const ImageDataPtr &img_data) {
@@ -85,10 +124,7 @@ void PipelineManager::add_image(const ImageDataPtr &img_data) {
 }
 
 bool PipelineManager::get_final_result(ImageDataPtr &result) {
-  final_results_.wait_and_pop(result);
-  // std::this_thread::sleep_for(std::chrono::milliseconds(4000));
-
-  return true;
+  return final_results_.wait_and_pop(result);
 }
 
 void PipelineManager::print_status() const {
@@ -191,19 +227,12 @@ void PipelineManager::seg_to_mask_thread_func() {
     bool has_work = false;
     size_t processed = 0;
 
-    // 每秒更新一次状态
-    auto current_time = std::chrono::steady_clock::now();
-    if (current_time - last_status_time > std::chrono::milliseconds(1000)) {
-      print_status();
-      last_status_time = current_time;
-    }
-
     // 检查输出队列
     if (semantic_seg_->get_output_queue_size() > 0) {
       ImageDataPtr seg_result;
 
       // 批量处理数据
-      while (semantic_seg_->get_processed_image(seg_result)) {
+      while (semantic_seg_->get_processed_image(seg_result) && running_.load()) {
         if (seg_result) {
           has_work = true;
           processed++;
@@ -216,6 +245,7 @@ void PipelineManager::seg_to_mask_thread_func() {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
   }
+  std::cout << "seg_to_mask_thread 已退出" << std::endl;
 }
 
 // Mask后处理->目标检测->目标跟踪的数据流转
@@ -229,7 +259,7 @@ void PipelineManager::mask_to_detect_thread_func() {
     // 从mask后处理获取新的图像并添加到目标检测
     if (mask_postprocess_->get_output_queue_size() > 0) {
       ImageDataPtr mask_result;
-      while (mask_postprocess_->get_processed_image(mask_result)) {
+      while (mask_postprocess_->get_processed_image(mask_result) && running_.load()) {
         if (mask_result) {
           has_work = true;
           // 去除大部分传递输出，保持简洁
@@ -251,9 +281,9 @@ void PipelineManager::mask_to_detect_thread_func() {
         if (image->detection_future.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
           try {
             image->detection_future.get(); // 确保没有异常
-            std::cout << "➤ 传递到跟踪: 帧 " << image->frame_idx 
-                      << " (期望: " << next_expected_detection_frame 
-                      << ", 队列: " << pending_images.size() << ")" << std::endl;
+            // std::cout << "➤ 传递到跟踪: 帧 " << image->frame_idx 
+            //           << " (期望: " << next_expected_detection_frame 
+            //           << ", 队列: " << pending_images.size() << ")" << std::endl;
             object_track_->add_image(image);
             it = pending_images.erase(it); // 从待处理列表中移除
             next_expected_detection_frame++; // 更新期望的下一帧
@@ -265,11 +295,11 @@ void PipelineManager::mask_to_detect_thread_func() {
           }
         } else {
           // 当前期望的帧还未完成，显示等待状态
-          if (pending_images.size() > 3) { // 只在队列较长时显示
-            std::cout << "⏳ 等待目标检测完成，帧 " << image->frame_idx 
-                      << " (期望: " << next_expected_detection_frame 
-                      << ", 队列长度: " << pending_images.size() << ")" << std::endl;
-          }
+          // if (pending_images.size() > 3) { // 只在队列较长时显示
+          //   std::cout << "⏳ 等待目标检测完成，帧 " << image->frame_idx 
+          //             << " (期望: " << next_expected_detection_frame 
+          //             << ", 队列长度: " << pending_images.size() << ")" << std::endl;
+          // }
           break;
         }
       } else {
@@ -282,6 +312,7 @@ void PipelineManager::mask_to_detect_thread_func() {
       std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
   }
+  std::cout << "mask_to_detect_thread 已退出" << std::endl;
 }
 
 // 目标跟踪->目标框筛选的数据流转
@@ -294,7 +325,7 @@ void PipelineManager::track_to_filter_thread_func() {
     // 从目标跟踪获取新的图像并检查完成状态
     if (object_track_->get_output_queue_size() > 0) {
       ImageDataPtr track_result;
-      while (object_track_->get_processed_image(track_result)) {
+      while (object_track_->get_processed_image(track_result) && running_.load()) {
         if (track_result) {
           has_work = true;
           // 去除跟踪到筛选的输出
@@ -308,6 +339,7 @@ void PipelineManager::track_to_filter_thread_func() {
       std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
   }
+  std::cout << "track_to_filter_thread 已退出" << std::endl;
 }
 
 // 目标框筛选->最终结果的数据流转
@@ -321,7 +353,7 @@ void PipelineManager::filter_to_final_thread_func() {
       ImageDataPtr filter_result;
 
       // 批量处理数据
-      while (box_filter_->get_processed_image(filter_result)) {
+      while (box_filter_->get_processed_image(filter_result) && running_.load()) {
         if (filter_result) {
           has_work = true;
           processed++;
@@ -348,4 +380,5 @@ void PipelineManager::filter_to_final_thread_func() {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
   }
+  std::cout << "filter_to_final_thread 已退出" << std::endl;
 }

@@ -4,3 +4,4 @@ outs
 *.trt
 *.jpg
 seg_model
+segmentation_results

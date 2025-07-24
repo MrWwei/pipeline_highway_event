@@ -7,7 +7,7 @@
 
 BoxFilter::BoxFilter(int num_threads)
     : ImageProcessor(num_threads, "目标框筛选") {
-  std::cout << "🔍 目标框筛选模块初始化完成" << std::endl;
+  // std::cout << "🔍 目标框筛选模块初始化完成" << std::endl;
 }
 
 BoxFilter::~BoxFilter() {}
@@ -22,11 +22,11 @@ void BoxFilter::process_image(ImageDataPtr image, int thread_id) {
 }
 
 void BoxFilter::on_processing_start(ImageDataPtr image, int thread_id) {
-  std::cout << "📦 目标框筛选准备开始 (线程 " << thread_id << ")" << std::endl;
+  // std::cout << "📦 目标框筛选准备开始 (线程 " << thread_id << ")" << std::endl;
 }
 
 void BoxFilter::on_processing_complete(ImageDataPtr image, int thread_id) {
-  std::cout << "📦 目标框筛选处理完成 (线程 " << thread_id << ")" << std::endl;
+  // std::cout << "📦 目标框筛选处理完成 (线程 " << thread_id << ")" << std::endl;
 }
 
 void BoxFilter::perform_box_filtering(ImageDataPtr image, int thread_id) {
@@ -43,7 +43,7 @@ void BoxFilter::perform_box_filtering(ImageDataPtr image, int thread_id) {
         image->box_filter_promise->set_value();
       }
     } catch (const std::future_error& e) {
-      std::cout << "⚠️ Promise已被设置，帧 " << image->frame_idx << ": " << e.what() << std::endl;
+      // std::cout << "⚠️ Promise已被设置，帧 " << image->frame_idx << ": " << e.what() << std::endl;
     }
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -58,8 +58,8 @@ void BoxFilter::perform_box_filtering(ImageDataPtr image, int thread_id) {
   int region_top = image_height * 4 / 7;      // 七分之二处
   int region_bottom = image_height * 8 / 9;   // 七分之六处
   
-  std::cout << "🎯 筛选区域: [" << region_top << ", " << region_bottom 
-            << "] (图像高度: " << image_height << ")" << std::endl;
+  // std::cout << "🎯 筛选区域: [" << region_top << ", " << region_bottom 
+  //           << "] (图像高度: " << image_height << ")" << std::endl;
   
   // 首先在指定区域内寻找宽度最小的目标框
   ImageData::BoundingBox* min_width_box = find_min_width_box_in_region(
@@ -67,7 +67,7 @@ void BoxFilter::perform_box_filtering(ImageDataPtr image, int thread_id) {
   
   if (min_width_box == nullptr) {
     // 指定区域内没有目标框，在全图范围内寻找
-    std::cout << "⚠️ 指定区域内没有目标框，扩展到全图搜索" << std::endl;
+    // std::cout << "⚠️ 指定区域内没有目标框，扩展到全图搜索" << std::endl;
     min_width_box = find_min_width_box_in_region(
         image->detection_results, 0, image_height);
   }
@@ -134,13 +134,13 @@ void BoxFilter::perform_box_filtering(ImageDataPtr image, int thread_id) {
       image->box_filter_promise->set_value();
     }
   } catch (const std::future_error& e) {
-    std::cout << "⚠️ Promise已被设置，帧 " << image->frame_idx << ": " << e.what() << std::endl;
+    // std::cout << "⚠️ Promise已被设置，帧 " << image->frame_idx << ": " << e.what() << std::endl;
   }
   
   auto end_time = std::chrono::high_resolution_clock::now();
   auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
       end_time - start_time);
-  std::cout << "✅ 目标框筛选完成，耗时: " << duration.count() << "ms" << std::endl;
+  // std::cout << "✅ 目标框筛选完成，耗时: " << duration.count() << "ms" << std::endl;
 }
 
 int BoxFilter::calculate_box_width(const ImageData::BoundingBox& box) const {

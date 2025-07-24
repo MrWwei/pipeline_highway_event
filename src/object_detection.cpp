@@ -28,12 +28,12 @@ ObjectDetection::ObjectDetection(int num_threads)
   // 初始化检测器
   car_detect_instance_ = xtkj::createDetect();
   car_detect_instance_->init(config);
-  std::cout << "🔍 目标检测模块初始化完成（正常模式）" << std::endl;
+  // std::cout << "🔍 目标检测模块初始化完成（正常模式）" << std::endl;
 
   // 启动工作线程
   worker_thread_ = std::thread(&ObjectDetection::detection_worker, this);
 
-  std::cout << "🔍 目标检测模块启动完成" << std::endl;
+  // std::cout << "🔍 目标检测模块启动完成" << std::endl;
 
 }
 
@@ -52,18 +52,18 @@ void ObjectDetection::process_image(ImageDataPtr image, int thread_id) {
     std::cerr << "Error: Invalid image data in process_image" << std::endl;
     return;
   }
-  std::cout << "📥 目标检测接收图像: 帧 " << image->frame_idx << " (线程 " << thread_id << ")" << std::endl;
+  // std::cout << "📥 目标检测接收图像: 帧 " << image->frame_idx << " (线程 " << thread_id << ")" << std::endl;
   detection_queue_->push(image);
   // 注意：不在这里设置promise，而是在detection_worker中设置
 }
 
 void ObjectDetection::on_processing_start(ImageDataPtr image, int thread_id) {
-  std::cout << "🎯 目标检测准备开始 (线程 " << thread_id << ")" << std::endl;
+  // std::cout << "🎯 目标检测准备开始 (线程 " << thread_id << ")" << std::endl;
 }
 
 void ObjectDetection::on_processing_complete(ImageDataPtr image,
                                              int thread_id) {
-  std::cout << "🎯 目标检测处理完成 (线程 " << thread_id << ")" << std::endl;
+  // std::cout << "🎯 目标检测处理完成 (线程 " << thread_id << ")" << std::endl;
 }
 
 void ObjectDetection::perform_object_detection(ImageDataPtr image,
@@ -104,7 +104,7 @@ void ObjectDetection::detection_worker() {
       break;
     }
     
-    std::cout << "🔄 目标检测开始处理批次，首帧: " << first_img->frame_idx << std::endl;
+    // std::cout << "🔄 目标检测开始处理批次，首帧: " << first_img->frame_idx << std::endl;
     batch_images.push_back(first_img);
     
     // 尝试收集更多图像组成批次，但不阻塞等待，保持顺序
@@ -180,7 +180,7 @@ void ObjectDetection::detection_worker() {
             image->detection_promise->set_value();
           }
         } catch (const std::future_error& e) {
-          std::cout << "⚠️ Promise已被设置，帧 " << image->frame_idx << ": " << e.what() << std::endl;
+          // std::cout << "⚠️ Promise已被设置，帧 " << image->frame_idx << ": " << e.what() << std::endl;
         }
       }
       
@@ -200,7 +200,7 @@ void ObjectDetection::detection_worker() {
               img->detection_promise->set_exception(std::current_exception());
             }
           } catch (const std::future_error& e) {
-            std::cout << "⚠️ Promise异常已被设置，帧 " << img->frame_idx << ": " << e.what() << std::endl;
+            // std::cout << "⚠️ Promise异常已被设置，帧 " << img->frame_idx << ": " << e.what() << std::endl;
           }
         }
       }
@@ -209,7 +209,7 @@ void ObjectDetection::detection_worker() {
 }
 
 ObjectDetection::~ObjectDetection() {
-  std::cout << "🔄 正在停止目标检测模块..." << std::endl;
+  // std::cout << "🔄 正在停止目标检测模块..." << std::endl;
   stop_worker_ = true;
   
   // 清空队列中剩余的图像，避免阻塞
@@ -236,5 +236,5 @@ ObjectDetection::~ObjectDetection() {
     car_detect_instance_ = nullptr;
   }
   
-  std::cout << "✅ 目标检测模块已停止" << std::endl;
+  // std::cout << "✅ 目标检测模块已停止" << std::endl;
 }

@@ -12,7 +12,7 @@
 int main() {
   // 创建流水线管理器 - 配置线程数量
   // 语义分割：8个线程，Mask后处理：20个线程，目标检测：8个线程，目标跟踪：1个线程，目标框筛选：4个线程
-  PipelineManager pipeline(8, 20, 8, 1, 4);
+  PipelineManager pipeline(8, 8, 8, 1, 4);
 
   // 启动流水线
   pipeline.start();
@@ -21,14 +21,22 @@ int main() {
 
   // 监控处理进度
   int processed_count = 0;
-  int total_images = 0; // 将在读取视频信息后更新
+  int total_images = 300; // 限制处理300帧
   std::atomic<bool> result_thread_running(true);
   auto start_time = std::chrono::high_resolution_clock::now();
 
   // 创建结果处理线程
   std::thread result_thread([&pipeline, &processed_count, &total_images,
                              &result_thread_running, start_time]() {
-    while (result_thread_running.load() || processed_count < total_images) {
+    std::cout << "结果处理线程已启动" << std::endl;
+    while (result_thread_running.load()) {
+      if (processed_count >= total_images && pipeline.get_result_queue_size() == 0) {
+        std::cout << "结果处理线程检测到退出条件" << std::endl;
+        break;  // 如果所有帧都处理完且结果队列为空，则退出
+      }
+      
+      std::cout << "\r🔄 处理进度: " << processed_count << "/" << total_images
+                << " 帧" << std::flush;
       // 检查是否有完成的结果
       ImageDataPtr result;
       bool has_result = false;
@@ -108,6 +116,12 @@ int main() {
         processed_count++;
         // std::cout << "✅ 处理第 " << result->frame_idx
         //           << " 帧，耗时: " << duration.count() << "ms" << std::endl;
+      } else {
+        // get_final_result 返回 false，说明队列已关闭，准备退出
+        if (!result_thread_running.load()) {
+          std::cout << "\n结果处理线程收到停止信号，准备退出" << std::endl;
+          break;
+        }
       }
 
       if (!has_result) {
@@ -115,6 +129,7 @@ int main() {
         std::this_thread::sleep_for(std::chrono::milliseconds(40));
       }
     }
+    std::cout << "结果处理线程即将退出" << std::endl;
   });
   // 打开视频文件
   cv::VideoCapture cap(
@@ -137,13 +152,26 @@ int main() {
   // 显示流水线配置信息
   std::cout << "\n🔧 流水线配置:" << std::endl;
   std::cout << "   语义分割: 8 线程" << std::endl;
-  std::cout << "   Mask后处理: 20 线程" << std::endl;
+  std::cout << "   Mask后处理: 8 线程" << std::endl;
   std::cout << "   目标检测: 8 线程" << std::endl;
+  std::cout << "   目标跟踪: 1 线程" << std::endl;
   std::cout << "   目标框筛选: 4 线程" << std::endl;
-  std::cout << "   流水线阶段: 语义分割 → Mask后处理 → 目标检测 → 目标框筛选 → 最终结果" << std::endl;
+  std::cout << "   处理帧数限制: 300 帧" << std::endl;
+  std::cout << "   流水线阶段: 语义分割 → Mask后处理 → 目标检测 → 目标跟踪 → 目标框筛选 → 最终结果" << std::endl;
   std::cout << "   筛选条件: 图像 2/7~6/7 区域内宽度最小的目标框（无则全图搜索）" << std::endl;
   
   auto total_start_time = std::chrono::high_resolution_clock::now();
+
+  // 定义状态打印函数
+  auto print_pipeline_status = [&pipeline]() {
+    std::cout << "\n📊 Pipeline Status:" << std::endl;
+    std::cout << "   语义分割队列: " << pipeline.get_seg_queue_size() << " 帧" << std::endl;
+    std::cout << "   Mask后处理队列: " << pipeline.get_mask_queue_size() << " 帧" << std::endl;
+    std::cout << "   目标检测队列: " << pipeline.get_det_queue_size() << " 帧" << std::endl;
+    std::cout << "   目标跟踪队列: " << pipeline.get_track_queue_size() << " 帧" << std::endl;
+    std::cout << "   目标框筛选队列: " << pipeline.get_filter_queue_size() << " 帧" << std::endl;
+    std::cout << "   结果队列: " << pipeline.get_result_queue_size() << " 帧" << std::endl;
+  };
 
   // 逐帧读取并处理
   cv::Mat frame;
@@ -170,34 +198,77 @@ int main() {
     pipeline.add_image(img_data);
 
     input_frame_count++;
+    if(input_frame_count > 300)break;
 
     // 每隔1秒或每10帧打印一次状态（减少清屏频率）
     auto current_time = std::chrono::steady_clock::now();
     if (current_time - last_status_time > std::chrono::seconds(5)) {
-      // 简化状态输出，只显示基本进度
-      std::cout << "已输入: " << input_frame_count << " 帧, 已处理: " << processed_count << " 帧" << std::endl;
+      print_pipeline_status();
+      std::cout << "总进度 - 已输入: " << input_frame_count << " 帧, 已处理: " << processed_count << " 帧" << std::endl;
       last_status_time = current_time;
     }
 
     // 按原始视频帧率控制处理速度
     // std::this_thread::sleep_for(std::chrono::milliseconds(delay));
   }
+  
+  std::cout << "📥 完成输入 " << input_frame_count << " 帧，等待处理完成..." << std::endl;
 
   // 主线程等待所有图像处理完成
-  while (processed_count < total_images) {
+  while (processed_count < input_frame_count) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    
+    // 定期显示等待状态
+    static auto last_wait_print = std::chrono::steady_clock::now();
+    auto now = std::chrono::steady_clock::now();
+    if (now - last_wait_print > std::chrono::seconds(2)) {
+      print_pipeline_status();
+      std::cout << "⏳ 等待处理完成: " << processed_count << "/" << input_frame_count << " 帧" << std::endl;
+      last_wait_print = now;
+    }
   }
+  
+  std::cout << "✅ 所有帧处理完成！" << std::endl;
+
+  // 等待所有结果被处理
+  while (pipeline.get_result_queue_size() > 0) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    std::cout << "\r⏳ 等待最后 " << pipeline.get_result_queue_size() << " 帧结果处理完成..." << std::flush;
+  }
+  std::cout << std::endl;
 
   // 停止结果处理线程
+  std::cout << "正在停止结果处理线程..." << std::endl;
   result_thread_running.store(false);
-  // 等待结果处理线程完成
+  std::cout << "已设置停止标志，等待线程退出..." << std::endl;
+  
+  // 添加超时机制
+  auto join_start = std::chrono::steady_clock::now();
+  const auto timeout = std::chrono::seconds(10);
+  
   if (result_thread.joinable()) {
-    result_thread.join();
+    // 用一个循环来检查线程是否还在运行
+    while (std::chrono::steady_clock::now() - join_start < timeout) {
+      if (!result_thread.joinable()) {
+        break;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      std::cout << "." << std::flush;
+    }
+    
+    if (result_thread.joinable()) {
+      std::cout << "\n强制结束结果处理线程..." << std::endl;
+      result_thread.detach();  // 如果超时，就分离线程
+    } else {
+      std::cout << "\n结果处理线程已正常退出" << std::endl;
+    }
   }
 
+  std::cout << "正在关闭流水线..." << std::endl;
   // 关闭视频和停止流水线
   cap.release();
   pipeline.stop();
+  std::cout << "流水线已停止" << std::endl;
 
   return 0;
 }

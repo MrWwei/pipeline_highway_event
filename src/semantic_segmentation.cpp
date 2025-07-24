@@ -6,7 +6,7 @@
 #include <thread>
 
 #include "thread_safe_queue.h"
-const int batch_size = 8;
+const int batch_size = 16;
 //析构函数
 SemanticSegmentation::~SemanticSegmentation() {
   stop_worker_ = true;
@@ -29,8 +29,6 @@ SemanticSegmentation::SemanticSegmentation(int num_threads)
   init_params.seg_show_image_path = "./segmentation_results/";
 
   road_seg_instance_ = createRoadSeg();
-
-  std::cout << "\nInitializing segmentation model..." << std::endl;
   int init_result = road_seg_instance_->init_seg(init_params);
 }
 
@@ -88,21 +86,43 @@ void SemanticSegmentation::perform_semantic_segmentation(ImageDataPtr image,
 
 // 队列处理线程
 void SemanticSegmentation::segmentation_worker() {
+  std::cout << "🔄 语义分割专用工作线程启动" << std::endl;
+  
   while (!stop_worker_) {
     try {
+      // 在循环开始时再次检查
+      if (stop_worker_) {
+        break;
+      }
+      
       // 检查队列大小决定使用批处理还是单个处理
-      if (segmentation_queue_->size() >= batch_size) {
+      if (segmentation_queue_->size() >= batch_size && !stop_worker_) {
         // 批量处理
         std::vector<ImageDataPtr> batch_images;
 
         // 批量取出数据
-        for (int i = 0; i < batch_size; ++i) {
+        for (int i = 0; i < batch_size && !stop_worker_; ++i) {
           ImageDataPtr img;
           segmentation_queue_->wait_and_pop(img);
-          if (!img || !img->segInResizeMat) {
-            throw std::runtime_error("批处理中存在无效的图像数据");
+          
+          // 检查是否是停止信号（空数据）
+          if (!img) {
+            if (stop_worker_) {
+              break;  // 收到停止信号，退出批处理循环
+            }
+            continue;  // 忽略空数据，继续处理
+          }
+          
+          if (!img->segInResizeMat) {
+            std::cerr << "⚠️ 批处理中发现无效的图像数据，跳过" << std::endl;
+            continue;
           }
           batch_images.push_back(img);
+        }
+        
+        // 如果收到停止信号或没有有效图像，退出
+        if (stop_worker_ || batch_images.empty()) {
+          break;
         }
 
         // 构建批量输入
@@ -114,6 +134,7 @@ void SemanticSegmentation::segmentation_worker() {
         // 执行批量分割
         SegInputParams input_params(image_ptrs);
         SegResult seg_result;
+        
         if (road_seg_instance_->seg_road(input_params, seg_result) != 0) {
           throw std::runtime_error("批量语义分割执行失败");
         }
@@ -160,7 +181,15 @@ void SemanticSegmentation::segmentation_worker() {
         ImageDataPtr image;
         segmentation_queue_->wait_and_pop(image);
 
-        if (!image || !image->segInResizeMat) {
+        // 检查是否是停止信号（空数据）
+        if (!image) {
+          if (stop_worker_) {
+            break;  // 收到停止信号，退出循环
+          }
+          continue;  // 忽略空数据，继续处理
+        }
+
+        if (!image->segInResizeMat) {
           throw std::runtime_error("无效的图像数据");
         }
 
@@ -169,7 +198,7 @@ void SemanticSegmentation::segmentation_worker() {
           std::vector<cv::Mat *> image_ptrs{image->segInResizeMat};
           SegInputParams input_params(image_ptrs);
           SegResult seg_result;
-
+          std::cout << "单个处理帧序号: " << image->frame_idx << std::endl;
           if (road_seg_instance_->seg_road(input_params, seg_result) != 0) {
             throw std::runtime_error("语义分割执行失败");
           }
@@ -208,7 +237,13 @@ void SemanticSegmentation::segmentation_worker() {
       }
     } catch (const std::exception &e) {
       std::cerr << "语义分割工作线程异常: " << e.what() << std::endl;
+      // 检查是否应该停止
+      if (stop_worker_) {
+        break;
+      }
       std::this_thread::sleep_for(std::chrono::milliseconds(100)); // 避免死循环
     }
   }
+  
+  std::cout << "🔄 语义分割工作线程正在退出..." << std::endl;
 }
