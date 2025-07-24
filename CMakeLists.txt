@@ -54,6 +54,7 @@ set(SOURCES
     src/pipeline_manager.cpp
     src/image_data.cpp
     src/seg_utils.cc
+    src/highway_event.cpp
 )
 
 # Headers
@@ -67,13 +68,52 @@ set(HEADERS
     include/image_data.h
     include/thread_safe_queue.h
     include/process_mask.h
+    include/highway_event.h
 )
 
-# Create executable
+# Create main executable
 add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS} )
 
-# Link libraries
+# Create demo executable
+set(DEMO_SOURCES
+    highway_event_demo.cpp
+    src/image_processor.cpp
+    src/process_mask.cu
+    src/semantic_segmentation.cpp
+    src/mask_postprocess.cpp
+    src/object_detection.cpp
+    src/object_tracking.cpp
+    src/box_filter.cpp
+    src/pipeline_manager.cpp
+    src/image_data.cpp
+    src/seg_utils.cc
+    src/highway_event.cpp
+)
+
+add_executable(HighwayEventDemo ${DEMO_SOURCES} ${HEADERS})
+
+# Link libraries for main executable
 target_link_libraries(${PROJECT_NAME} Threads::Threads 
+    detect_lib
+    track_lib
+    road_seg_interface
+    ${FASTDEPLOY_LIBS}
+    ${OpenCV_LIBS}
+    nvinfer
+    nvinfer_plugin
+    cudnn
+     cuda          
+  cudart    
+  cublas    
+  cublasLt  
+  curand    
+  cusolver  
+  cusparse  
+  cufft  
+)
+
+# Link libraries for demo executable
+target_link_libraries(HighwayEventDemo Threads::Threads 
     detect_lib
     track_lib
     road_seg_interface
