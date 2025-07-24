@@ -156,12 +156,15 @@ int main() {
       continue;
     }
 
-    // 创建新的Mat对象（深拷贝）并添加到流水线
+    // 优化：减少内存分配开销
     static uint64_t frame_idx = 0; // 静态变量记录帧序号
-    cv::Mat *frame_copy = new cv::Mat(frame.clone());
+    
+    // 直接在堆上分配，避免临时对象
+    cv::Mat *frame_ptr = new cv::Mat(frame.rows, frame.cols, frame.type());
+    frame.copyTo(*frame_ptr); // 必要的拷贝，但优化了分配过程
 
     // 创建并初始化图像数据
-    ImageDataPtr img_data = std::make_shared<ImageData>(frame_copy);
+    ImageDataPtr img_data = std::make_shared<ImageData>(frame_ptr);
     img_data->frame_idx = frame_idx++; // 设置并递增帧序号
     // 去除主线程输入打印
     pipeline.add_image(img_data);

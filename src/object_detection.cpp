@@ -75,6 +75,7 @@ void ObjectDetection::detection_worker() {
   while (!stop_worker_) {
     // 收集一批图像进行批处理，保持接收顺序
     std::vector<ImageDataPtr> batch_images;
+    batch_images.reserve(det_batch_size); // 内存优化：预分配批次大小
     
     // 阻塞等待第一个图像
     ImageDataPtr first_img;
@@ -136,19 +137,24 @@ void ObjectDetection::detection_worker() {
 
     // 处理批次（无论大小）
     try {
+      // 内存优化：预分配批处理缓冲区
       std::vector<cv::Mat> mats;
+      mats.reserve(batch_images.size()); // 预分配避免重复扩容
+      
       for (auto &img : batch_images) {
+        // 使用ROI引用，避免数据拷贝（这已经是最优的）
         cv::Mat cropped_image = (*img->imageMat)(img->roi);
         mats.push_back(cropped_image);
       }
       
-      // 执行批量目标检测
-      detect_result_group_t **outs = new detect_result_group_t *[batch_images.size()];
+      // 内存优化：预分配检测结果数组
+      std::vector<detect_result_group_t*> outs;
+      outs.reserve(batch_images.size());
       for (size_t i = 0; i < batch_images.size(); ++i) {
-        outs[i] = new detect_result_group_t();
+        outs.push_back(new detect_result_group_t());
       }
       
-      car_detect_instance_->forward(mats, outs);
+      car_detect_instance_->forward(mats, outs.data());
       
       // 处理每个图像的检测结果
       for (size_t idx = 0; idx < batch_images.size(); ++idx) {
@@ -178,11 +184,11 @@ void ObjectDetection::detection_worker() {
         }
       }
       
-      // 释放检测结果
-      for (size_t i = 0; i < batch_images.size(); ++i) {
-        delete outs[i]; // 释放每个结果组
+      // 内存优化：使用vector自动管理内存
+      for (auto* result : outs) {
+        delete result; // 释放每个结果组
       }
-      delete[] outs; // 释放结果组数组
+      // vector会自动释放
     } catch (const std::exception &e) {
       std::cerr << "目标检测处理失败: " << e.what() << std::endl;
       // 设置异常状态

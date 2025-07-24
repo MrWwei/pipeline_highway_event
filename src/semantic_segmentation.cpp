@@ -124,11 +124,8 @@ void SemanticSegmentation::segmentation_worker() {
           try {
             if (seg_result.results.size() > idx &&
                 !seg_result.results[idx].label_map.empty()) {
-              // 设置结果
-              image->label_map.resize(seg_result.results[idx].label_map.size());
-              std::copy(seg_result.results[idx].label_map.begin(),
-                        seg_result.results[idx].label_map.end(),
-                        image->label_map.begin());
+              // 优化：使用移动语义避免拷贝大量数据
+              image->label_map = std::move(seg_result.results[idx].label_map);
               image->mask_height = image->segInResizeMat->rows;
               image->mask_width = image->segInResizeMat->cols;
 
@@ -180,10 +177,8 @@ void SemanticSegmentation::segmentation_worker() {
           // 检查并设置结果
           if (!seg_result.results.empty() &&
               !seg_result.results[0].label_map.empty()) {
-            image->label_map.resize(seg_result.results[0].label_map.size());
-            std::copy(seg_result.results[0].label_map.begin(),
-                      seg_result.results[0].label_map.end(),
-                      image->label_map.begin());
+            // 优化：使用移动语义避免拷贝大量数据
+            image->label_map = std::move(seg_result.results[0].label_map);
             image->mask_height = image->segInResizeMat->rows;
             image->mask_width = image->segInResizeMat->cols;
 

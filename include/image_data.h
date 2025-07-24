@@ -89,6 +89,11 @@ struct ImageData {
       width = img->cols;
       height = img->rows;
       channels = img->channels();
+      
+      // 内存优化：预分配常用缓冲区
+      label_map.reserve(1024 * 1024); // 预留分割结果空间
+      detection_results.reserve(100);  // 预留检测结果空间
+      track_results.reserve(100);      // 预留跟踪结果空间
     }
   }
 
