@@ -120,8 +120,8 @@ void BoxFilter::perform_box_filtering(ImageDataPtr image, int thread_id) {
 
     }
 
-    // drawEmergencyLaneQuarterPoints(*image->imageMat, eRes);
-    // cv::imwrite("mask_" + std::to_string(image->frame_idx) + ".jpg", *image->imageMat);
+    // drawEmergencyLaneQuarterPoints(image->imageMat, eRes);
+    // cv::imwrite("mask_" + std::to_string(image->frame_idx) + ".jpg", image->imageMat);
     // exit(0);
     // 绘制到原图
 

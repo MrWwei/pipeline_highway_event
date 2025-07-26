@@ -30,14 +30,7 @@ ImageData::~ImageData() {
     // 忽略promise已经被设置的错误
   }
 
-  if (imageMat) {
-    delete imageMat;
-    imageMat = nullptr;
-  }
-  if (segInResizeMat) {
-    delete segInResizeMat;
-    segInResizeMat = nullptr;
-  }
+  // cv::Mat objects will be automatically destroyed by their destructors
 }
 
 // 检查是否完全处理完成

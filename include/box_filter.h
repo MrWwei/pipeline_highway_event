@@ -2,7 +2,7 @@
 
 #include "image_processor.h"
 #include "thread_safe_queue.h"
-#include "seg_utils.h"
+#include "event_utils.h"
 
 // 前向声明
 struct PipelineConfig;

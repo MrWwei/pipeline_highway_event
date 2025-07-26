@@ -16,8 +16,8 @@ class ImageProcessor {
 protected:
   std::atomic<bool> running_;
   std::vector<std::thread> worker_threads_;
-  ThreadSafeQueue<ImageDataPtr> input_queue_;
-  ThreadSafeQueue<ImageDataPtr> output_queue_;
+  ThreadSafeQueue<ImageDataPtr> input_queue_; // 默认队列容量为1
+  ThreadSafeQueue<ImageDataPtr> output_queue_; // 默认队列容量为1
   int num_threads_;
   std::string processor_name_;
 

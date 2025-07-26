@@ -1,6 +1,6 @@
 #include "mask_postprocess.h"
 #include "process_mask.h"
-#include "seg_utils.h"
+#include "event_utils.h"
 #include <chrono>
 #include <future>
 #include <iostream>
@@ -88,7 +88,7 @@ void MaskPostProcess::perform_mask_postprocess(ImageDataPtr image,
   DetectRegion detect_region = crop_detect_region_optimized(
       image->mask, image->mask.rows, image->mask.cols);
   // cv::rectangle(
-  //     *image->segInResizeMat, cv::Point(detect_region.x1, detect_region.y1),
+  //     image->segInResizeMat, cv::Point(detect_region.x1, detect_region.y1),
   //     cv::Point(detect_region.x2, detect_region.y2), cv::Scalar(0, 0, 255),
   //     2);
   //将resize的roi映射回原图大小
@@ -100,7 +100,7 @@ void MaskPostProcess::perform_mask_postprocess(ImageDataPtr image,
                                       static_cast<double>(image->mask_height));
   detect_region.y2 = static_cast<int>(detect_region.y2 * image->height /
                                       static_cast<double>(image->mask_height));
-  // cv::rectangle(*image->imageMat, cv::Point(detect_region.x1,
+  // cv::rectangle(image->imageMat, cv::Point(detect_region.x1,
   // detect_region.y1),
   //               cv::Point(detect_region.x2, detect_region.y2),
   //               cv::Scalar(0, 0, 255), 2);
@@ -108,12 +108,12 @@ void MaskPostProcess::perform_mask_postprocess(ImageDataPtr image,
                         detect_region.x2 - detect_region.x1,
                         detect_region.y2 - detect_region.y1);
 
-  // cv::Mat cropped_image = (*image->imageMat)(image->roi);
+  // cv::Mat cropped_image = (image->imageMat)(image->roi);
   // if (!cropped_image.isContinuous()) {
   //   cropped_image = cropped_image.clone();
   // }
   // cv::imwrite("crop_out.jpg", cropped_image);
-  // cv::imwrite("src_out.jpg", *image->imageMat);
+  // cv::imwrite("src_out.jpg", image->imageMat);
   // exit(0);
   // // 裁剪检测区域
   // cv::Rect roi(detect_region.x1, detect_region.y1,

@@ -44,17 +44,6 @@ struct LowLevelBoxResult {
       : lowest_y(y), lowest_box_width(width), is_valid(true) {}
 };
 
-struct DetectionBox {
-  double x1, y1, x2, y2;
-  double conf;
-  int cls;
-  int track_id;
-
-  DetectionBox(double x1 = 0, double y1 = 0, double x2 = 0, double y2 = 0,
-               double conf = 0.0, int cls = -1, int track_id = -1)
-      : x1(x1), y1(y1), x2(x2), y2(y2), conf(conf), cls(cls),
-        track_id(track_id) {}
-};
 
 // 函数声明
 /**
@@ -95,27 +84,6 @@ DetectRegion crop_detect_region_optimized(const cv::Mat &img, int height,
  * @return 处理后的掩码图像
  */
 cv::Mat remove_small_white_regions(const cv::Mat &mask);
-
-/**
- * @brief 获取画面下方区域中目标框宽度最小的目标框
- * @param det_result 检测结果列表
- * @param borders 边界区域
- * @param percentage 下方区域比例，默认3/8
- * @return 最小宽度的检测框
- */
-DetectionBox get_low_level_box(const std::vector<DetectionBox> &det_result,
-                               const DetectRegion &borders,
-                               float percentage = 3.0 / 8.0);
-
-/**
- * @brief 获取画面下方区域中目标框宽度最小的目标框（重载版本）
- * @param det_result 原始检测数据
- * @param borders 边界区域
- * @return 最小宽度的检测框
- */
-DetectionBox
-get_low_level_box(const std::vector<std::vector<double>> &det_result,
-                  const DetectRegion &borders);
 
 /**
  * @brief 绘制应急车道四分之一点

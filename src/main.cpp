@@ -62,13 +62,13 @@ int main() {
         //     color = cv::Scalar(0, 255, 0); // 绿色
         //   }
           
-        //   cv::rectangle(*result->imageMat, cv::Point(box.left, box.top),
+        //   cv::rectangle(result->imageMat, cv::Point(box.left, box.top),
         //                 cv::Point(box.right, box.bottom), color, 2);}
 
         // 显示筛选出的目标框信息
         // if (result->has_filtered_box) {
 
-        //   cv::rectangle(*result->imageMat,
+        //   cv::rectangle(result->imageMat,
         //                 cv::Point(result->filtered_box.left,
         //                           result->filtered_box.top),
         //                 cv::Point(result->filtered_box.right,
@@ -98,12 +98,12 @@ int main() {
         
         // for (auto box : result->track_results) {
         //   // 在图像上绘制检测框
-        //   cv::rectangle(*result->imageMat, cv::Point(box.left, box.top),
+        //   cv::rectangle(result->imageMat, cv::Point(box.left, box.top),
         //                 cv::Point(box.right, box.bottom), cv::Scalar(0, 255,
         //                 0), 2);
         //   int track_id = box.track_id;
         //   // Draw track ID above the bounding box
-        //   cv::putText(*result->imageMat, "ID: " + std::to_string(track_id),
+        //   cv::putText(result->imageMat, "ID: " + std::to_string(track_id),
         //               cv::Point(box.left, box.top - 10),
         //               cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 255, 0),
         //               2);
@@ -117,7 +117,7 @@ int main() {
         // std::string output_filename =
         //     "outs/output_frame_" + std::to_string(result->frame_idx) +
         //     ".jpg";
-        // cv::imwrite(output_filename, *result->imageMat);
+        // cv::imwrite(output_filename, result->imageMat);
 
         has_result = true;
         processed_count++;
@@ -194,12 +194,8 @@ int main() {
     // 优化：减少内存分配开销
     static uint64_t frame_idx = 0; // 静态变量记录帧序号
     
-    // 直接在堆上分配，避免临时对象
-    cv::Mat *frame_ptr = new cv::Mat(frame.rows, frame.cols, frame.type());
-    frame.copyTo(*frame_ptr); // 必要的拷贝，但优化了分配过程
-
-    // 创建并初始化图像数据
-    ImageDataPtr img_data = std::make_shared<ImageData>(frame_ptr);
+    // 创建并初始化图像数据 - 使用移动语义
+    ImageDataPtr img_data = std::make_shared<ImageData>(frame);
     img_data->frame_idx = frame_idx++; // 设置并递增帧序号
     // 去除主线程输入打印
     pipeline.add_image(img_data);

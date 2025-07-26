@@ -1,4 +1,4 @@
-#include "seg_utils.h"
+#include "event_utils.h"
 EmergencyLaneResult get_Emergency_Lane(const cv::Mat &mask_mat, double car_width,
                                        double car_low_y,
                                        float times_car_width) {
@@ -73,10 +73,10 @@ EmergencyLaneResult get_Emergency_Lane(const cv::Mat &mask_mat, double car_width
   int start_col = white_indices.front();
   int end_col = white_indices.back();
 
-  std::vector<Point> left_border_points;
-  std::vector<Point> right_border_points;
-  std::vector<Point> left_quarter_points;
-  std::vector<Point> right_quarter_points;
+  std::vector<PointT> left_border_points;
+  std::vector<PointT> right_border_points;
+  std::vector<PointT> left_quarter_points;
+  std::vector<PointT> right_quarter_points;
 
   // 遍历每一行
   for (int y = 0; y < height; y++) {
@@ -93,16 +93,16 @@ EmergencyLaneResult get_Emergency_Lane(const cv::Mat &mask_mat, double car_width
       start_col = white_indices.front();
       end_col = white_indices.back();
 
-      left_border_points.push_back(Point(start_col, y));
-      right_border_points.push_back(Point(end_col, y));
+      left_border_points.push_back(PointT(start_col, y));
+      right_border_points.push_back(PointT(end_col, y));
 
       int left_quarter_col =
           start_col + static_cast<int>((end_col - start_col) * p_interval);
-      left_quarter_points.push_back(Point(left_quarter_col, y));
+      left_quarter_points.push_back(PointT(left_quarter_col, y));
 
       int right_quarter_col =
           end_col - static_cast<int>((end_col - start_col) * p_interval);
-      right_quarter_points.push_back(Point(right_quarter_col, y));
+      right_quarter_points.push_back(PointT(right_quarter_col, y));
     }
   }
 
@@ -243,67 +243,6 @@ cv::Mat remove_small_white_regions(const cv::Mat &mask) {
   }
 
   return final_mask;
-}
-
-DetectionBox get_low_level_box(const std::vector<DetectionBox> &det_result,
-                               const DetectRegion &borders, float percentage) {
-  /**
-   * 获取画面下方指定区域中目标框宽度最小的目标框
-   * @param det_result: 检测结果列表
-   * @param borders: 边界区域 (y1, y2, x1, x2)
-   * @param percentage: 下方区域比例
-   * @return: 最小宽度的检测框
-   */
-
-  // 检查输入是否为空
-  if (det_result.empty()) {
-    return DetectionBox(0, 0, 0, 0, 0.0, -1); // 返回无效框
-  }
-
-  // 计算阈值位置：画面下方指定比例区域
-  double lowest_y_threshold =
-      borders.y2 - (borders.y2 - borders.y1) * percentage;
-
-  double lowest_box_width = std::numeric_limits<double>::infinity();
-  double lowest_y = 0.0;
-  bool found_valid_box = false;
-
-  // 遍历所有检测框
-  DetectionBox box_min = DetectionBox(0, 0, 0, 0, 0.0, -1);
-  for (const auto &box : det_result) {
-    // 如果框的底部位置在阈值之上，跳过
-    if (box.y2 < lowest_y_threshold) {
-      continue;
-    }
-
-    // 计算框的宽度
-    double box_width = box.x2 - box.x1;
-
-    // 如果找到更小宽度的框，更新记录
-    if (box_width < lowest_box_width) {
-      lowest_box_width = box_width;
-      lowest_y = (box.y1 + box.y2) / 2.0; // 框的中心y坐标
-      found_valid_box = true;
-      box_min = box; // 记录当前最小宽度的框
-    }
-  }
-
-  return box_min;
-}
-
-DetectionBox
-get_low_level_box(const std::vector<std::vector<double>> &det_result,
-                  const DetectRegion &borders) {
-  // 转换为 DetectionBox 格式
-  std::vector<DetectionBox> boxes;
-  for (const auto &box_data : det_result) {
-    if (box_data.size() >= 6) {
-      boxes.emplace_back(box_data[0], box_data[1], box_data[2], box_data[3],
-                         box_data[4], static_cast<int>(box_data[5]));
-    }
-  }
-
-  return get_low_level_box(boxes, borders, 0.5);
 }
 
 /**

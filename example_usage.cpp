@@ -2,22 +2,29 @@
 #include <opencv2/opencv.hpp>
 #include <iostream>
 #include <vector>
-#include <thread>
 #include <chrono>
 
+/**
+ * 高速公路事件检测器简单使用示例
+ * 演示纯净接口的三个核心功能：初始化、添加数据、获取结果
+ */
 int main() {
-    // 1. 创建检测器实例
+    std::cout << "=== 高速公路事件检测器纯净接口示例 ===" << std::endl;
+    
+    // ========== 1. 初始化流水线 ==========
+    std::cout << "\n🔧 步骤1: 初始化流水线" << std::endl;
+    
     HighwayEventDetector detector;
     
-    // 2. 配置参数
+    // 配置参数
     HighwayEventConfig config;
-    config.semantic_threads = 8;
-    config.mask_threads = 8;
-    config.detection_threads = 8;
+    config.semantic_threads = 2;
+    config.mask_threads = 1;
+    config.detection_threads = 2;
     config.tracking_threads = 1;
-    config.filter_threads = 4;
-    config.add_timeout_ms = 5000;
-    config.get_result_timeout_ms = 10000;
+    config.filter_threads = 1;
+    config.enable_debug_log = true;  // 启用调试日志
+    config.seg_enable_show = false;  // 不保存可视化结果
     config.enable_debug_log = true;
     config.enable_status_print = true;
     

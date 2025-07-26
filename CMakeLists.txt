@@ -42,7 +42,9 @@ include_directories(include)
 
 # Source files
 set(SOURCES
-    src/main.cpp
+    # src/main.cpp
+    src/highway_event.cpp
+
     src/image_processor.cpp
     src/process_mask.cu
     src/semantic_segmentation.cpp
@@ -50,12 +52,13 @@ set(SOURCES
     src/object_detection.cpp
     src/object_tracking.cpp
     src/box_filter.cpp
-    src/box_filter.cpp
     src/pipeline_manager.cpp
     src/image_data.cpp
-    src/seg_utils.cc
-    src/highway_event.cpp
+    src/event_utils.cc
 )
+aux_source_directory(${PROJECT_SOURCE_DIR}/src SRC_DIR)
+file(GLOB_RECURSE cuda_srcs ${PROJECT_SOURCE_DIR}/src/process_mask.cu  )
+
 
 # Headers
 set(HEADERS
@@ -71,8 +74,67 @@ set(HEADERS
     include/highway_event.h
 )
 
+# add_library(test_so SHARED  ${SRC_DIR} ${cuda_srcs})
+# target_link_libraries(test_so 
+#     Threads::Threads 
+#     detect_lib
+#     track_lib
+#     road_seg_interface
+#     # ${FASTDEPLOY_LIBS}
+#     opencv_world
+#     nvinfer
+#     nvinfer_plugin
+#     cudnn
+#     cuda          
+#     cudart    
+#     cublas    
+#     cublasLt  
+#     curand    
+#     cusolver  
+#     cusparse  
+#     cufft  
+# )
+set(sdk_target_name highway_event_sdk_v1.0)
+add_library(${sdk_target_name} SHARED ${SOURCES})
+target_link_libraries(${sdk_target_name}
+    /home/ubuntu/wtwei/FastDeploy-release-1.1.0/build/compiled_fastdeploy_sdk/lib/libfastdeploy.so
+/home/ubuntu/wtwei/FastDeploy-release-1.1.0/build/compiled_fastdeploy_sdk/third_libs/install/onnxruntime/lib/libonnxruntime.so
+/home/ubuntu/wtwei/FastDeploy-release-1.1.0/build/compiled_fastdeploy_sdk/third_libs/install/paddle_inference/paddle/lib/libpaddle_inference.so
+/home/ubuntu/wtwei/FastDeploy-release-1.1.0/build/compiled_fastdeploy_sdk/third_libs/install/paddle_inference/third_party/install/mkldnn/lib/libmkldnn.so.0
+/home/ubuntu/wtwei/FastDeploy-release-1.1.0/build/compiled_fastdeploy_sdk/third_libs/install/paddle_inference/third_party/install/mklml/lib/libiomp5.so
+/home/ubuntu/wtwei/FastDeploy-release-1.1.0/build/compiled_fastdeploy_sdk/third_libs/install/openvino/runtime/lib/libopenvino.so
+    /home/ubuntu/wtwei/FastDeploy-release-1.1.0/build/compiled_fastdeploy_sdk/third_libs/install/paddle2onnx/lib/libpaddle2onnx.so
+
+    Threads::Threads 
+    detect_lib
+    track_lib
+    road_seg_interface
+    # ${FASTDEPLOY_LIBS}
+    opencv_world
+    nvinfer
+    nvinfer_plugin
+    cudnn
+     cuda          
+   cudart    
+   cublas    
+   cublasLt  
+   curand    
+   cusolver  
+   cusparse  
+   cufft  
+)
+# #################### jni #################
+include_directories(${ThirdParty}/jdk1.8.0_381/include)
+include_directories(${ThirdParty}/jdk1.8.0_381/include/linux)
+
+# V2.0
+set(jni_target_name highway_event_X86_SDK_V1.0_JNI_V1.0 )
+include_directories(${CMAKE_SOURCE_DIR}/jni)
+add_library(${jni_target_name} SHARED ${CMAKE_SOURCE_DIR}/jni/cn_xtkj_jni_algor_HighwayAlgors.cpp )
+target_link_libraries(${jni_target_name} ${sdk_target_name}) 
+
 # Create main executable
-add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS} )
+# add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS} )
 
 # Create demo executable
 set(DEMO_SOURCES
@@ -86,33 +148,33 @@ set(DEMO_SOURCES
     src/box_filter.cpp
     src/pipeline_manager.cpp
     src/image_data.cpp
-    src/seg_utils.cc
+    src/event_utils.cc
     src/highway_event.cpp
 )
 
 add_executable(HighwayEventDemo ${DEMO_SOURCES} ${HEADERS})
 
-# Link libraries for main executable
-target_link_libraries(${PROJECT_NAME} Threads::Threads 
-    detect_lib
-    track_lib
-    road_seg_interface
-    ${FASTDEPLOY_LIBS}
-    ${OpenCV_LIBS}
-    nvinfer
-    nvinfer_plugin
-    cudnn
-     cuda          
-  cudart    
-  cublas    
-  cublasLt  
-  curand    
-  cusolver  
-  cusparse  
-  cufft  
-)
+# # Link libraries for main executable
+# target_link_libraries(${PROJECT_NAME} Threads::Threads 
+#     detect_lib
+#     track_lib
+#     road_seg_interface
+#     ${FASTDEPLOY_LIBS}
+#     ${OpenCV_LIBS}
+#     nvinfer
+#     nvinfer_plugin
+#     cudnn
+#      cuda          
+#   cudart    
+#   cublas    
+#   cublasLt  
+#   curand    
+#   cusolver  
+#   cusparse  
+#   cufft  
+# )
 
-# Link libraries for demo executable
+# # Link libraries for demo executable
 target_link_libraries(HighwayEventDemo Threads::Threads 
     detect_lib
     track_lib

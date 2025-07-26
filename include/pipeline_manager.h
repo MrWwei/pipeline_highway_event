@@ -23,6 +23,12 @@ struct PipelineConfig {
     int tracking_threads = 1;              // 目标跟踪线程数
     int box_filter_threads = 1;            // 目标框筛选线程数
     
+    // 模块开关配置
+    bool enable_mask_postprocess = true;  // 启用Mask后处理模块
+    bool enable_detection = true;          // 启用目标检测模块
+    bool enable_tracking = true;           // 启用目标跟踪模块
+    bool enable_box_filter = true;         // 启用目标框筛选模块
+    
     // 语义分割模型配置
     std::string seg_model_path = "seg_model";               // 语义分割模型路径
     bool seg_enable_show = false;                           // 是否启用分割结果可视化
@@ -55,6 +61,8 @@ struct PipelineConfig {
  */
 class PipelineManager {
 private:
+  PipelineConfig config_;  // 保存配置，用于判断模块是否启用
+  
   std::unique_ptr<SemanticSegmentation> semantic_seg_;
   std::unique_ptr<MaskPostProcess> mask_postprocess_;
   std::unique_ptr<ObjectDetection> object_det_;
@@ -105,10 +113,10 @@ public:
 
   // 获取各个队列的大小
   size_t get_seg_queue_size() const { return semantic_seg_->get_queue_size(); }
-  size_t get_mask_queue_size() const { return mask_postprocess_->get_queue_size(); }
-  size_t get_det_queue_size() const { return object_det_->get_queue_size(); }
-  size_t get_track_queue_size() const { return object_track_->get_queue_size(); }
-  size_t get_filter_queue_size() const { return box_filter_->get_queue_size(); }
+  size_t get_mask_queue_size() const { return mask_postprocess_ ? mask_postprocess_->get_queue_size() : 0; }
+  size_t get_det_queue_size() const { return object_det_ ? object_det_->get_queue_size() : 0; }
+  size_t get_track_queue_size() const { return object_track_ ? object_track_->get_queue_size() : 0; }
+  size_t get_filter_queue_size() const { return box_filter_ ? box_filter_->get_queue_size() : 0; }
   size_t get_result_queue_size() const { return final_results_.size(); }
 
 private:

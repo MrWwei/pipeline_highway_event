@@ -5,23 +5,14 @@
 #include <opencv2/opencv.hpp>
 #include <string>
 #include <vector>
+#include "event_type.h"
 
-// 目标状态枚举
-enum class ObjectStatus {
-  NORMAL = 0,                 // 正常状态
-  PARKING_LANE = 1,           // 违停
-  PARKING_EMERGENCY_LANE = 2, // 应急车道停车
-  OCCUPY_EMERGENCY_LANE = 3,  // 占用应急车道
-  WALK_HIGHWAY = 4,           // 高速行人
-  HIGHWAY_JAM = 5,            // 高速拥堵
-  TRAFFIC_ACCIDENT = 6        // 交通事故
-};
 /**
  * 图像数据结构，用于在流水线各阶段之间传递数据
  */
 struct ImageData {
-  cv::Mat *imageMat;
-  cv::Mat *segInResizeMat;
+  cv::Mat imageMat;
+  cv::Mat segInResizeMat;
   int width;
   int height;
   int channels;
@@ -67,7 +58,7 @@ struct ImageData {
 
   // 默认构造函数
   ImageData()
-      : imageMat(nullptr), segInResizeMat(nullptr), width(0), height(0),
+      : width(0), height(0),
         channels(0), frame_idx(0), mask_height(0), mask_width(0), 
         has_filtered_box(false) {
     segmentation_promise = std::make_shared<std::promise<void>>();
@@ -83,18 +74,29 @@ struct ImageData {
   }
 
   // 带图像的构造函数
-  ImageData(cv::Mat *img) : ImageData() {
-    if (img) {
-      imageMat = img;
-      width = img->cols;
-      height = img->rows;
-      channels = img->channels();
-      
-      // 内存优化：预分配常用缓冲区
-      label_map.reserve(1024 * 1024); // 预留分割结果空间
-      detection_results.reserve(100);  // 预留检测结果空间
-      track_results.reserve(100);      // 预留跟踪结果空间
-    }
+  ImageData(const cv::Mat& img) : ImageData() {
+    imageMat = img.clone();
+    width = img.cols;
+    height = img.rows;
+    channels = img.channels();
+    
+    // 内存优化：预分配常用缓冲区
+    label_map.reserve(1024 * 1024); // 预留分割结果空间
+    detection_results.reserve(100);  // 预留检测结果空间
+    track_results.reserve(100);      // 预留跟踪结果空间
+  }
+
+  // 移动构造函数
+  ImageData(cv::Mat&& img) : ImageData() {
+    imageMat = std::move(img);
+    width = imageMat.cols;
+    height = imageMat.rows;
+    channels = imageMat.channels();
+    
+    // 内存优化：预分配常用缓冲区
+    label_map.reserve(1024 * 1024); // 预留分割结果空间
+    detection_results.reserve(100);  // 预留检测结果空间
+    track_results.reserve(100);      // 预留跟踪结果空间
   }
 
   // 析构函数

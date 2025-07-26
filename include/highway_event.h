@@ -1,40 +1,35 @@
 #pragma once
 
+#include <opencv2/opencv.hpp>
+#include <memory>
+#include <cstdint>
+#include "box_event.h"
 #include "image_data.h"
 #include "pipeline_manager.h"
-#include <memory>
+#include <string>
+#include <atomic>
 #include <mutex>
 #include <condition_variable>
 #include <unordered_map>
-#include <atomic>
+#include <thread>
 
 /**
- * 高速公路事件检测系统配置参数
+ * 高速公路事件检测配置参数
  */
 struct HighwayEventConfig {
-    // 线程配置
-    int semantic_threads = 8;      // 语义分割线程数
-    int mask_threads = 8;          // Mask后处理线程数  
-    int detection_threads = 8;     // 目标检测线程数
-    int tracking_threads = 1;      // 目标跟踪线程数
-    int filter_threads = 4;        // 目标框筛选线程数
+    // === 线程配置 ===
+    int semantic_threads = 2;              // 语义分割线程数
+    int mask_threads = 1;                  // Mask后处理线程数
+    int detection_threads = 2;             // 目标检测线程数
+    int tracking_threads = 1;              // 目标跟踪线程数
+    int filter_threads = 1;                // 目标框筛选线程数
     
-    // 队列容量配置
-    int input_queue_capacity = 100;    // 输入队列容量
-    int result_queue_capacity = 500;   // 结果队列容量
-    
-    // 超时配置
-    int add_timeout_ms = 5000;         // 添加数据超时时间(毫秒)
-    int get_result_timeout_ms = 10000; // 获取结果超时时间(毫秒)
-    
-    // 语义分割模型配置
+    // === 模型配置 ===
     std::string seg_model_path = "seg_model";               // 语义分割模型路径
-    bool seg_enable_show = false;                           // 是否启用分割结果可视化
-    std::string seg_show_image_path = "./segmentation_results/"; // 分割结果图像保存路径
-    
-    // 目标检测算法配置
-    std::string det_algor_name = "object_detect";           // 算法名称
     std::string det_model_path = "car_detect.onnx";         // 目标检测模型路径
+    
+    // === 检测配置 ===
+    std::string det_algor_name = "object_detect";           // 算法名称
     int det_img_size = 640;                                 // 输入图像尺寸
     float det_conf_thresh = 0.25f;                          // 置信度阈值
     float det_iou_thresh = 0.2f;                            // NMS IoU阈值
@@ -45,173 +40,183 @@ struct HighwayEventConfig {
     int det_is_ultralytics = 1;                             // 是否使用Ultralytics格式
     int det_gpu_id = 0;                                     // GPU设备ID
     
-    // 目标框筛选配置
+    // === 筛选配置 ===
     float box_filter_top_fraction = 4.0f / 7.0f;           // 筛选区域上边界比例
     float box_filter_bottom_fraction = 8.0f / 9.0f;        // 筛选区域下边界比例
     
-    // 调试配置
-    bool enable_debug_log = false;     // 是否启用调试日志
-    bool enable_status_print = false;  // 是否启用状态打印
+    // === 队列配置 ===
+    int result_queue_capacity = 500;                        // 结果队列容量
+    
+    // === 模块开关配置 ===
+    bool enable_mask_postprocess = true;                   // 启用Mask后处理模块
+    bool enable_detection = true;                           // 启用目标检测模块
+    bool enable_tracking = true;                            // 启用目标跟踪模块
+    bool enable_box_filter = true;                          // 启用目标框筛选模块
+    
+    // === 调试配置 ===
+    bool enable_debug_log = false;                          // 启用调试日志
+    bool seg_enable_show = false;                           // 启用分割结果可视化
+    std::string seg_show_image_path = "./segmentation_results/"; // 分割结果图像保存路径
+    
+    // === 超时配置 ===
+    int add_timeout_ms = 5000;                              // 添加帧超时时间（毫秒）
+    int get_timeout_ms = 30000;                             // 获取结果超时时间（毫秒）
 };
+
+/**
+ * 目标状态枚举
+ */
+// enum class ObjectStatus {
+//     NORMAL = 0,                 // 正常状态
+//     PARKING_LANE = 1,           // 违停
+//     PARKING_EMERGENCY_LANE = 2, // 应急车道停车
+//     OCCUPY_EMERGENCY_LANE = 3,  // 占用应急车道
+//     WALK_HIGHWAY = 4,           // 高速行人
+//     HIGHWAY_JAM = 5,            // 高速拥堵
+//     TRAFFIC_ACCIDENT = 6        // 交通事故
+// };
+
+/**
+ * 检测框结果
+ */
+
 
 /**
  * 处理结果状态
  */
 enum class ResultStatus {
-    SUCCESS,        // 成功
-    TIMEOUT,        // 超时
-    NOT_FOUND,      // 未找到指定帧
-    PIPELINE_STOPPED, // 流水线已停止
-    ERROR           // 错误
+    SUCCESS = 0,        // 成功
+    PENDING = 1,        // 处理中
+    TIMEOUT = 2,        // 超时
+    NOT_FOUND = 3,      // 帧未找到
+    ERROR = 4           // 错误
 };
 
 /**
- * 获取结果的返回值
+ * 处理结果
  */
-struct GetResultReturn {
-    ResultStatus status;
-    ImageDataPtr result;
+struct ProcessResult {
+    ResultStatus status;                    // 结果状态
+    uint64_t frame_id;                     // 帧ID
+    std::vector<DetectionBox> detections;   // 检测结果
+    DetectionBox filtered_box;              // 筛选出的最佳目标框
+    bool has_filtered_box;                  // 是否有筛选结果
+    cv::Mat mask;                          // 语义分割掩码（可选）
+    cv::Mat srcImage;                   // 源图像（可选）
+    cv::Rect roi;                          // 感兴趣区域
     
-    GetResultReturn(ResultStatus s, ImageDataPtr r = nullptr) 
-        : status(s), result(r) {}
+    ProcessResult() : status(ResultStatus::PENDING), frame_id(0), 
+                     has_filtered_box(false) {}
 };
 
 /**
- * 高速公路事件检测系统接口
+ * 高速公路事件检测器 - 纯虚接口
  * 
- * 提供简化的API来管理整个图像处理流水线
+ * 使用方法：
+ * 1. 使用工厂函数 create_highway_event_detector() 创建实例
+ * 2. 调用 initialize() 初始化流水线
+ * 3. 调用 start() 启动流水线
+ * 4. 调用 add_frame() 向流水线添加图像数据，返回帧序号
+ * 5. 调用 get_result() 获取指定帧序号的处理结果
+ * 6. 使用完毕后自动析构或显式调用 stop()
  */
 class HighwayEventDetector {
-private:
-    std::unique_ptr<PipelineManager> pipeline_manager_;
-    HighwayEventConfig config_;
-    std::atomic<bool> is_initialized_{false};
-    std::atomic<bool> is_running_{false};
-    std::atomic<uint64_t> next_frame_id_{0};
-    
-    // 结果管理
-    std::mutex result_mutex_;
-    std::condition_variable result_cv_;
-    std::unordered_map<uint64_t, ImageDataPtr> completed_results_;
-    
-    // 内部结果处理线程
-    std::thread result_thread_;
-    std::atomic<bool> result_thread_running_{false};
-    
-    // 内部方法
-    void result_processing_thread();
-    void cleanup_old_results();
-
 public:
     /**
-     * 构造函数
+     * 虚析构函数
      */
-    HighwayEventDetector();
+    virtual ~HighwayEventDetector() = default;
     
-    /**
-     * 析构函数
-     */
-    ~HighwayEventDetector();
+    // 禁用拷贝构造和赋值
+    HighwayEventDetector(const HighwayEventDetector&) = delete;
+    HighwayEventDetector& operator=(const HighwayEventDetector&) = delete;
     
     /**
      * 初始化流水线
      * @param config 配置参数
-     * @return true 初始化成功，false 初始化失败
+     * @return 成功返回true，失败返回false
      */
-    bool initialize(const HighwayEventConfig& config);
+    virtual bool initialize(const HighwayEventConfig& config = HighwayEventConfig()) = 0;
     
     /**
      * 启动流水线
-     * @return true 启动成功，false 启动失败
+     * @return 成功返回true，失败返回false
      */
-    bool start();
+    virtual bool start() = 0;
     
     /**
-     * 向流水线添加图像数据
-     * @param image_mat 输入图像（会被拷贝）
-     * @return 返回该帧的序列号，如果失败返回-1
-     * @note 如果第一阶段队列满了，此接口会阻塞等待
+     * 添加图像数据到流水线
+     * @param image 输入图像
+     * @return 成功返回帧序号（>=0），失败返回-1
      */
-    int64_t add_frame(const cv::Mat& image_mat);
+    virtual int64_t add_frame(const cv::Mat& image) = 0;
     
     /**
-     * 向流水线添加图像数据（移动语义版本）
-     * @param image_mat 输入图像（会被移动）
-     * @return 返回该帧的序列号，如果失败返回-1
-     * @note 如果第一阶段队列满了，此接口会阻塞等待
+     * 添加图像数据到流水线（移动语义）
+     * @param image 输入图像（移动）
+     * @return 成功返回帧序号（>=0），失败返回-1
      */
-    int64_t add_frame(cv::Mat&& image_mat);
-    
-    /**
-     * 向流水线添加图像数据（带超时）
-     * @param image_mat 输入图像
-     * @param timeout_ms 超时时间（毫秒），0表示不阻塞，-1表示无限等待
-     * @return 返回该帧的序列号，如果失败或超时返回-1
-     */
-    int64_t add_frame_with_timeout(const cv::Mat& image_mat, int timeout_ms);
+    virtual int64_t add_frame(cv::Mat&& image) = 0;
     
     /**
      * 获取指定帧序号的处理结果
-     * @param frame_id 帧序列号
-     * @return GetResultReturn 包含状态和结果数据
-     * @note 如果结果还未准备好，此接口会阻塞等待
+     * @param frame_id 帧序号
+     * @return 处理结果
      */
-    GetResultReturn get_result(uint64_t frame_id);
+    virtual ProcessResult get_result(uint64_t frame_id) = 0;
     
     /**
      * 获取指定帧序号的处理结果（带超时）
-     * @param frame_id 帧序列号
-     * @param timeout_ms 超时时间（毫秒），0表示不阻塞，-1表示无限等待
-     * @return GetResultReturn 包含状态和结果数据
+     * @param frame_id 帧序号
+     * @param timeout_ms 超时时间（毫秒）
+     * @return 处理结果
      */
-    GetResultReturn get_result_with_timeout(uint64_t frame_id, int timeout_ms);
+    virtual ProcessResult get_result_with_timeout(uint64_t frame_id, int timeout_ms) = 0;
     
     /**
-     * 尝试获取指定帧序号的处理结果（非阻塞）
-     * @param frame_id 帧序列号
-     * @return GetResultReturn 包含状态和结果数据
+     * 停止流水线
      */
-    GetResultReturn try_get_result(uint64_t frame_id);
-    
-    /**
-     * 停止流水线并释放资源
-     * @return true 停止成功，false 停止失败
-     */
-    bool stop();
-    
-    /**
-     * 获取流水线状态信息
-     */
-    void print_status() const;
-    
-    /**
-     * 获取配置信息
-     */
-    const HighwayEventConfig& get_config() const { return config_; }
+    virtual void stop() = 0;
     
     /**
      * 检查是否已初始化
+     * @return 已初始化返回true
      */
-    bool is_initialized() const { return is_initialized_.load(); }
+    virtual bool is_initialized() const = 0;
     
     /**
      * 检查是否正在运行
+     * @return 正在运行返回true
      */
-    bool is_running() const { return is_running_.load(); }
+    virtual bool is_running() const = 0;
     
     /**
-     * 获取当前待处理的帧数量
+     * 获取当前配置
+     * @return 配置参数的常量引用
      */
-    size_t get_pending_frame_count() const;
+    virtual const HighwayEventConfig& get_config() const = 0;
     
     /**
-     * 获取已完成但未取走的结果数量
+     * 获取流水线状态统计信息
+     * @return 状态信息字符串
      */
-    size_t get_completed_result_count() const;
-    
+    virtual std::string get_pipeline_status() const = 0;
+
+protected:
     /**
-     * 清理指定帧ID之前的所有结果（释放内存）
-     * @param before_frame_id 清理此帧ID之前的所有结果
+     * 受保护的构造函数，只允许派生类调用
      */
-    void cleanup_results_before(uint64_t before_frame_id);
+    HighwayEventDetector() = default;
 };
+
+/**
+ * 工厂函数：创建高速公路事件检测器实例
+ * @return 返回HighwayEventDetector的智能指针
+ */
+std::unique_ptr<HighwayEventDetector> create_highway_event_detector();
+
+/**
+ * 销毁函数：安全销毁检测器实例（用于C接口）
+ * @param detector 要销毁的检测器指针
+ */
+void destroy_highway_event_detector(HighwayEventDetector* detector);

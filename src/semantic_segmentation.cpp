@@ -43,7 +43,7 @@ SemanticSegmentation::SemanticSegmentation(int num_threads, const PipelineConfig
 }
 
 void SemanticSegmentation::process_image(ImageDataPtr image, int thread_id) {
-  if (!image || !image->segInResizeMat) {
+  if (!image || image->imageMat.empty()) {
     std::cerr << "Error: Invalid image data in process_image" << std::endl;
     return;
   }
@@ -52,12 +52,9 @@ void SemanticSegmentation::process_image(ImageDataPtr image, int thread_id) {
 
 void SemanticSegmentation::on_processing_start(ImageDataPtr image,
                                                int thread_id) {
-  // 为 segInResizeMat 分配内存
-  if (!image->segInResizeMat) {
-    image->segInResizeMat = new cv::Mat();
-  }
+  // Resize the image for segmentation processing
   auto start_time = std::chrono::high_resolution_clock::now();
-  cv::resize(*image->imageMat, *image->segInResizeMat, cv::Size(1024, 1024));
+  cv::resize(image->imageMat, image->segInResizeMat, cv::Size(1024, 1024));
   return;
 }
 
@@ -71,7 +68,7 @@ void SemanticSegmentation::on_processing_complete(ImageDataPtr image,
 void SemanticSegmentation::perform_semantic_segmentation(ImageDataPtr image,
                                                          int thread_id) {
 
-  // cv::Mat &segInMat = *image->segInResizeMat;
+  // cv::Mat &segInMat = image->segInResizeMat;
   // std::vector<cv::Mat *> image_ptrs;
   // image_ptrs.push_back(&segInMat);
   // SegInputParams input_params(image_ptrs);
@@ -123,7 +120,7 @@ void SemanticSegmentation::segmentation_worker() {
             continue;  // 忽略空数据，继续处理
           }
           
-          if (!img->segInResizeMat) {
+          if (img->segInResizeMat.empty()) {
             std::cerr << "⚠️ 批处理中发现无效的图像数据，跳过" << std::endl;
             continue;
           }
@@ -138,7 +135,7 @@ void SemanticSegmentation::segmentation_worker() {
         // 构建批量输入
         std::vector<cv::Mat *> image_ptrs;
         for (const auto &img : batch_images) {
-          image_ptrs.push_back(img->segInResizeMat);
+          image_ptrs.push_back(&img->segInResizeMat);
         }
 
         // 执行批量分割
@@ -157,8 +154,8 @@ void SemanticSegmentation::segmentation_worker() {
                 !seg_result.results[idx].label_map.empty()) {
               // 优化：使用移动语义避免拷贝大量数据
               image->label_map = std::move(seg_result.results[idx].label_map);
-              image->mask_height = image->segInResizeMat->rows;
-              image->mask_width = image->segInResizeMat->cols;
+              image->mask_height = image->segInResizeMat.rows;
+              image->mask_width = image->segInResizeMat.cols;
 
               // 通知完成 - 先检查是否已经设置
               try {
@@ -199,16 +196,16 @@ void SemanticSegmentation::segmentation_worker() {
           continue;  // 忽略空数据，继续处理
         }
 
-        if (!image->segInResizeMat) {
+        if (image->segInResizeMat.empty()) {
           throw std::runtime_error("无效的图像数据");
         }
 
         try {
           // 执行单个分割
-          std::vector<cv::Mat *> image_ptrs{image->segInResizeMat};
+          std::vector<cv::Mat *> image_ptrs{&image->segInResizeMat};
           SegInputParams input_params(image_ptrs);
           SegResult seg_result;
-          std::cout << "单个处理帧序号: " << image->frame_idx << std::endl;
+          // std::cout << "单个处理帧序号: " << image->frame_idx << std::endl;
           if (road_seg_instance_->seg_road(input_params, seg_result) != 0) {
             throw std::runtime_error("语义分割执行失败");
           }
@@ -218,8 +215,8 @@ void SemanticSegmentation::segmentation_worker() {
               !seg_result.results[0].label_map.empty()) {
             // 优化：使用移动语义避免拷贝大量数据
             image->label_map = std::move(seg_result.results[0].label_map);
-            image->mask_height = image->segInResizeMat->rows;
-            image->mask_width = image->segInResizeMat->cols;
+            image->mask_height = image->segInResizeMat.rows;
+            image->mask_width = image->segInResizeMat.cols;
 
             // 通知完成 - 先检查是否已经设置
             try {

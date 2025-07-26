@@ -161,7 +161,7 @@ void ObjectDetection::detection_worker() {
       
       for (auto &img : batch_images) {
         // 使用ROI引用，避免数据拷贝（这已经是最优的）
-        cv::Mat cropped_image = (*img->imageMat)(img->roi);
+        cv::Mat cropped_image = (img->imageMat)(img->roi);
         mats.push_back(cropped_image);
       }
       

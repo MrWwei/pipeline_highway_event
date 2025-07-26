@@ -196,6 +196,10 @@ void ObjectTracking::perform_tracking(ImageDataPtr image) {
     image->track_results.push_back(box);
   }
   
+  // 释放分配的内存，防止内存泄漏
+  delete out;
+  out = nullptr;
+  
   try {
     // 直接设置跟踪完成，不执行实际跟踪 - 先检查是否已经设置
     if (image->tracking_promise && 
