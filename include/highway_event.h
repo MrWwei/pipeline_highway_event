@@ -43,9 +43,11 @@ struct HighwayEventConfig {
     // === 筛选配置 ===
     float box_filter_top_fraction = 4.0f / 7.0f;           // 筛选区域上边界比例
     float box_filter_bottom_fraction = 8.0f / 9.0f;        // 筛选区域下边界比例
+    float times_car_width = 3.0f;                          // 车宽倍数，用于计算车道线位置
     
     // === 队列配置 ===
     int result_queue_capacity = 500;                        // 结果队列容量
+
     
     // === 模块开关配置 ===
     bool enable_mask_postprocess = true;                   // 启用Mask后处理模块

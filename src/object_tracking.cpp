@@ -49,10 +49,10 @@ void ObjectTracking::process_image(ImageDataPtr image, int thread_id) {
     std::lock_guard<std::mutex> lock(pending_mutex_);
     
     // 更新最近输入帧序号的滑动窗口
-    recent_input_frames_.push_back(image->frame_idx);
-    if (recent_input_frames_.size() > WINDOW_SIZE) {
-      recent_input_frames_.pop_front();
-    }
+    // recent_input_frames_.push_back(image->frame_idx);
+    // if (recent_input_frames_.size() > WINDOW_SIZE) {
+    //   recent_input_frames_.pop_front();
+    // }
     
     // 打印最近输入的帧序号窗口
     // std::cout << "🎯 跟踪输入帧序号 [" << image->frame_idx << "] 最近窗口: [";

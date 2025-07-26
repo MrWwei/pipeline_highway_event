@@ -94,7 +94,7 @@ ProcessResult HighwayEventDetectorImpl::convert_to_process_result(ImageDataPtr i
     result.roi = image_data->roi;
     // result.srcImage = image_data->imageMat->clone(); // 保留源图像
     // result.mask = image_data->mask.clone();
-    // cv::Mat image_src = image_data->imageMat;
+    cv::Mat image_src = image_data->imageMat;
     
     // 转换检测结果
     result.detections.reserve(image_data->track_results.size());
@@ -110,18 +110,18 @@ ProcessResult HighwayEventDetectorImpl::convert_to_process_result(ImageDataPtr i
         det_box.track_id = box.track_id;
         det_box.status = box.status;
         result.detections.push_back(det_box);
-        // cv::rectangle(image_src, 
-        //             cv::Point(box.left, box.top), 
-        //             cv::Point(box.right, box.bottom), 
-        //             cv::Scalar(0, 255, 0), 2);
-        // cv::putText(image_src, 
-        //           std::to_string(box.track_id), 
-        //           cv::Point(box.left, box.top - 5), 
-        //           cv::FONT_HERSHEY_SIMPLEX, 
-        //           0.5,
-        //           cv::Scalar(0, 255, 0), 1);
+        cv::rectangle(image_src, 
+                    cv::Point(box.left, box.top), 
+                    cv::Point(box.right, box.bottom), 
+                    cv::Scalar(0, 255, 0), 2);
+        cv::putText(image_src, 
+                  std::to_string(box.track_id), 
+                  cv::Point(box.left, box.top - 5), 
+                  cv::FONT_HERSHEY_SIMPLEX, 
+                  0.5,
+                  cv::Scalar(0, 255, 0), 1);
     }
-    // cv::imwrite("output_" + std::to_string(result.frame_id) + ".jpg", image_src);
+    cv::imwrite("track_outs/output_" + std::to_string(result.frame_id) + ".jpg", image_src);
     
     // 转换筛选结果
     result.has_filtered_box = image_data->has_filtered_box;
@@ -181,6 +181,7 @@ bool HighwayEventDetectorImpl::initialize(const HighwayEventConfig& config) {
         pipeline_config.box_filter_top_fraction = config.box_filter_top_fraction;
         pipeline_config.box_filter_bottom_fraction = config.box_filter_bottom_fraction;
         pipeline_config.final_result_queue_capacity = config.result_queue_capacity;
+        pipeline_config.times_car_width = config.times_car_width; // 车宽倍数
         
         // 创建流水线管理器（但不启动）
         pipeline_manager_ = std::make_unique<PipelineManager>(pipeline_config);
@@ -239,7 +240,6 @@ int64_t HighwayEventDetectorImpl::add_frame(const cv::Mat& image) {
     try {
         // 分配帧ID
         uint64_t frame_id = next_frame_id_.fetch_add(1);
-        
         // 创建图像数据（拷贝） - 使用异常安全的方式
         ImageDataPtr img_data = std::make_shared<ImageData>(image);
         img_data->frame_idx = frame_id;
@@ -390,18 +390,15 @@ std::string HighwayEventDetectorImpl::get_pipeline_status() const {
         return "流水线未初始化";
     }
     
+    // 使用 PipelineManager::print_status() 来实时监控队列
+    pipeline_manager_->print_status();
+    
+    // 返回简化的状态信息
     std::ostringstream oss;
-    oss << "=== 流水线状态 ===" << std::endl;
-    oss << "语义分割队列: " << pipeline_manager_->get_seg_queue_size() << " 帧" << std::endl;
-    oss << "Mask后处理队列: " << pipeline_manager_->get_mask_queue_size() << " 帧" << std::endl;
-    oss << "目标检测队列: " << pipeline_manager_->get_det_queue_size() << " 帧" << std::endl;
-    oss << "目标跟踪队列: " << pipeline_manager_->get_track_queue_size() << " 帧" << std::endl;
-    oss << "目标框筛选队列: " << pipeline_manager_->get_filter_queue_size() << " 帧" << std::endl;
-    oss << "最终结果队列: " << pipeline_manager_->get_result_queue_size() << " 帧" << std::endl;
-    oss << "下一帧ID: " << next_frame_id_.load() << std::endl;
+    oss << "下一帧ID: " << next_frame_id_.load();
     
     std::lock_guard<std::mutex> lock(result_mutex_);
-    oss << "缓存结果数量: " << completed_results_.size() << " 帧" << std::endl;
+    oss << ", 缓存结果数量: " << completed_results_.size() << " 帧";
     
     return oss.str();
 }

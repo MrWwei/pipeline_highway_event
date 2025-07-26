@@ -50,6 +50,7 @@ struct PipelineConfig {
     // 目标框筛选配置
     float box_filter_top_fraction = 4.0f / 7.0f;           // 筛选区域上边界比例
     float box_filter_bottom_fraction = 8.0f / 9.0f;        // 筛选区域下边界比例
+    float times_car_width = 3.0f;                          // 车宽倍数，用于计算车道线位置
     
     // 队列配置
     int final_result_queue_capacity = 500; // 最终结果队列容量
@@ -110,14 +111,6 @@ public:
 
   // 获取线程配置信息
   void print_thread_info() const;
-
-  // 获取各个队列的大小
-  size_t get_seg_queue_size() const { return semantic_seg_->get_queue_size(); }
-  size_t get_mask_queue_size() const { return mask_postprocess_ ? mask_postprocess_->get_queue_size() : 0; }
-  size_t get_det_queue_size() const { return object_det_ ? object_det_->get_queue_size() : 0; }
-  size_t get_track_queue_size() const { return object_track_ ? object_track_->get_queue_size() : 0; }
-  size_t get_filter_queue_size() const { return box_filter_ ? box_filter_->get_queue_size() : 0; }
-  size_t get_result_queue_size() const { return final_results_.size(); }
 
 private:
   // 协调器线程函数

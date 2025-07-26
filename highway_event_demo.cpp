@@ -64,6 +64,8 @@ public:
         config.enable_tracking = true;
         config.enable_box_filter = true;
         config.enable_mask_postprocess = true;
+        config.times_car_width = 2.6f; // 车宽倍数
+        
         
         if (!detector_->initialize(config) || !detector_->start()) {
             std::cerr << "❌ 初始化或启动失败" << std::endl;
@@ -191,11 +193,12 @@ public:
                 std::cout << "   平均处理速度: " << (total_frames_processed / (double)elapsed.count()) << " 帧/秒" << std::endl;
                 std::cout << "   检测目标总数: " << total_detections << std::endl;
                 
-                std::cout << "📊 流水线状态: " << detector_->get_pipeline_status() << std::endl;
+                std::cout << "\n📊 实时流水线状态监控:" << std::endl;
+                detector_->get_pipeline_status(); // 这会调用 print_status() 进行实时监控
                 
                 // 短暂休息，让系统稳定
                 if (total_frames_processed < frame_count) {
-                    std::cout << "😴 批次间休息 2 秒..." << std::endl;
+                    std::cout << "\n😴 批次间休息 2 秒..." << std::endl;
                     std::this_thread::sleep_for(std::chrono::seconds(2));
                 }
             }

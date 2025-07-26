@@ -171,13 +171,8 @@ int main() {
 
   // 定义状态打印函数
   auto print_pipeline_status = [&pipeline]() {
-    std::cout << "\n📊 Pipeline Status:" << std::endl;
-    std::cout << "   语义分割队列: " << pipeline.get_seg_queue_size() << " 帧" << std::endl;
-    std::cout << "   Mask后处理队列: " << pipeline.get_mask_queue_size() << " 帧" << std::endl;
-    std::cout << "   目标检测队列: " << pipeline.get_det_queue_size() << " 帧" << std::endl;
-    std::cout << "   目标跟踪队列: " << pipeline.get_track_queue_size() << " 帧" << std::endl;
-    std::cout << "   目标框筛选队列: " << pipeline.get_filter_queue_size() << " 帧" << std::endl;
-    std::cout << "   结果队列: " << pipeline.get_result_queue_size() << " 帧" << std::endl;
+    pipeline.print_status(); // 使用实时状态监控
+  };
   };
 
   // 逐帧读取并处理

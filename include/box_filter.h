@@ -36,6 +36,7 @@ private:
   // 配置参数
   float top_fraction_;     // 筛选区域上边界比例
   float bottom_fraction_;  // 筛选区域下边界比例
+  float times_car_width_ = 3.0f; // 车宽倍数，用于计算车道线位置
   
   // 具体的目标框筛选算法实现
   void perform_box_filtering(ImageDataPtr image, int thread_id);

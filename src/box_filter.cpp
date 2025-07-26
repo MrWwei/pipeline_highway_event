@@ -12,10 +12,12 @@ BoxFilter::BoxFilter(int num_threads, const PipelineConfig* config)
   if (config) {
     top_fraction_ = config->box_filter_top_fraction;
     bottom_fraction_ = config->box_filter_bottom_fraction;
+    times_car_width_ = config->times_car_width; // 车宽倍数
   } else {
     // 默认配置
     top_fraction_ = 4.0f / 7.0f;
     bottom_fraction_ = 8.0f / 9.0f;
+    times_car_width_ = 3.0f; // 默认车宽倍数
   }
   // std::cout << "🔍 目标框筛选模块初始化完成" << std::endl;
 }
@@ -92,7 +94,7 @@ void BoxFilter::perform_box_filtering(ImageDataPtr image, int thread_id) {
     box_width = box_width * image->mask_width / image->width;
 
     // 根据mask获得车道线
-    EmergencyLaneResult eRes = get_Emergency_Lane(image->mask, box_width, min_width_box->bottom, 3.0f);
+    EmergencyLaneResult eRes = get_Emergency_Lane(image->mask, box_width, min_width_box->bottom, times_car_width_);
     // 将eRes结果转换到原图
     for(auto& point : eRes.left_quarter_points) {
       point.x = static_cast<int>(point.x * image->width / static_cast<double>(image->mask_width));
@@ -115,14 +117,13 @@ void BoxFilter::perform_box_filtering(ImageDataPtr image, int thread_id) {
       point.y = static_cast<int>(point.y * image->height / static_cast<double>(image->mask_height));
     } 
     // 判断车辆是否在应急车道内
-    for(auto &track_box:image->track_results) {
-      track_box.status = determineObjectStatus(track_box, eRes);
+    for(auto &detect_box:image->detection_results) {
+      detect_box.status = determineObjectStatus(detect_box, eRes);
 
     }
 
     // drawEmergencyLaneQuarterPoints(image->imageMat, eRes);
     // cv::imwrite("mask_" + std::to_string(image->frame_idx) + ".jpg", image->imageMat);
-    // exit(0);
     // 绘制到原图
 
 
