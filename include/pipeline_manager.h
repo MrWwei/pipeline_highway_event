@@ -11,50 +11,11 @@
 #include <thread>
 #include <vector>
 #include <string>
-
+#include "pipeline_config.h"
 /**
  * 流水线管理器配置参数
  */
-struct PipelineConfig {
-    // 线程配置
-    int semantic_threads = 2;              // 语义分割线程数
-    int mask_postprocess_threads = 1;      // Mask后处理线程数
-    int detection_threads = 2;             // 目标检测线程数
-    int tracking_threads = 1;              // 目标跟踪线程数
-    int box_filter_threads = 1;            // 目标框筛选线程数
-    
-    // 模块开关配置
-    bool enable_mask_postprocess = true;  // 启用Mask后处理模块
-    bool enable_detection = true;          // 启用目标检测模块
-    bool enable_tracking = true;           // 启用目标跟踪模块
-    bool enable_box_filter = true;         // 启用目标框筛选模块
-    
-    // 语义分割模型配置
-    std::string seg_model_path = "seg_model";               // 语义分割模型路径
-    bool seg_enable_show = false;                           // 是否启用分割结果可视化
-    std::string seg_show_image_path = "./segmentation_results/"; // 分割结果图像保存路径
-    
-    // 目标检测算法配置
-    std::string det_algor_name = "object_detect";           // 算法名称
-    std::string det_model_path = "car_detect.onnx";         // 目标检测模型路径
-    int det_img_size = 640;                                 // 输入图像尺寸
-    float det_conf_thresh = 0.25f;                          // 置信度阈值
-    float det_iou_thresh = 0.2f;                            // NMS IoU阈值
-    int det_max_batch_size = 16;                            // 最大批处理大小
-    int det_min_opt = 1;                                    // 最小优化尺寸
-    int det_mid_opt = 16;                                   // 中等优化尺寸
-    int det_max_opt = 32;                                   // 最大优化尺寸
-    int det_is_ultralytics = 1;                             // 是否使用Ultralytics格式
-    int det_gpu_id = 0;                                     // GPU设备ID
-    
-    // 目标框筛选配置
-    float box_filter_top_fraction = 4.0f / 7.0f;           // 筛选区域上边界比例
-    float box_filter_bottom_fraction = 8.0f / 9.0f;        // 筛选区域下边界比例
-    float times_car_width = 3.0f;                          // 车宽倍数，用于计算车道线位置
-    
-    // 队列配置
-    int final_result_queue_capacity = 500; // 最终结果队列容量
-};
+
 
 /**
  * 流水线管理器
@@ -111,8 +72,25 @@ public:
 
   // 获取线程配置信息
   void print_thread_info() const;
-
-private:
-  // 协调器线程函数
-  void coordinator_thread_func();
+public:
+  void change_params(const PipelineConfig& config) {
+    config_ = config;
+    
+    // 更新各个模块的配置
+    if (semantic_seg_) {
+      semantic_seg_->change_params(config);
+    }
+    if (mask_postprocess_) {
+      mask_postprocess_->change_params(config);
+    }
+    if (object_det_) {
+      object_det_->change_params(config);
+    }
+    if (object_track_) {
+      object_track_->change_params(config);
+    }
+    if (box_filter_) {
+      box_filter_->change_params(config);
+    }
+  }
 };

@@ -94,7 +94,7 @@ HighwayEventConfig get_config_from_param(JNIEnv* env, jobject param) {
     }
     
     if (enableSegShowField) {
-        config.seg_enable_show = env->GetBooleanField(param, enableSegShowField);
+        config.enable_seg_show = env->GetBooleanField(param, enableSegShowField);
     }
     
     // 获取路径参数
@@ -104,6 +104,18 @@ HighwayEventConfig get_config_from_param(JNIEnv* env, jobject param) {
         if (segShowPath) {
             config.seg_show_image_path = jstring_to_string(env, segShowPath);
             env->DeleteLocalRef(segShowPath); // 释放局部引用
+        }
+    }
+
+    if(enableLaneShowField) {
+        config.enable_lane_show = env->GetBooleanField(param, enableLaneShowField);
+    }
+    jfieldID laneShowPathField = env->GetFieldID(paramClass, "laneShowImagePathString", "Ljava/lang/String;");
+    if (laneShowPathField) {
+        jstring laneShowPath = (jstring)env->GetObjectField(param, laneShowPathField);
+        if (laneShowPath) {
+            config.lane_show_image_path = jstring_to_string(env, laneShowPath);
+            env->DeleteLocalRef(laneShowPath); // 释放局部引用
         }
     }
     
@@ -116,6 +128,7 @@ HighwayEventConfig get_config_from_param(JNIEnv* env, jobject param) {
         // 根据应急车道参数调整目标框筛选区域
         config.box_filter_top_fraction = 4.0f / 7.0f;
         config.box_filter_bottom_fraction = 8.0f / 9.0f;
+        config.times_car_width = emergencyWidth;
     }
     
     // 设置默认线程配置（可以根据需要调整）
@@ -378,6 +391,33 @@ JNIEXPORT jintArray JNICALL Java_cn_xtkj_jni_algor_HighwayAlgors_createInstanceC
  */
 JNIEXPORT jint JNICALL Java_cn_xtkj_jni_algor_HighwayAlgors_changeParam
   (JNIEnv *env, jobject, jobject param) {
+
+    std::lock_guard<std::mutex> lock(g_instance_mutex);
+    if (!param) {
+        std::cerr << "❌ 参数为null" << std::endl;
+        return -1; // 错误状态
+    }
+    // 从参数获取配置
+    HighwayEventConfig config = get_config_from_param(env, param);
+    if (config.seg_model_path.empty() || config.det_model_path.empty()) {
+        std::cerr << "❌ 模型路径不能为空" << std::endl;
+        return -1; // 错误状态
+    }
+    // 遍历所有实例，更新配置
+    for (auto& pair : g_detectors) {
+        int instanceId = pair.first;
+        auto& detector = pair.second;
+        if (!detector) {
+            std::cerr << "❌ 检测器实例 " << instanceId << " 为空" << std::endl;
+            continue; // 跳过空实例
+        }   
+        // 更新检测器配置
+        if (!detector->change_params(config)) {
+            std::cerr << "❌ 更新检测器实例 " << instanceId << " 配置失败" << std::endl;
+            return -1; // 错误状态
+        }
+        std::cout << "✅ 检测器实例 " << instanceId << " 配置更新成功" << std::endl;
+    }
     
     // 当前实现：参数变更需要重新创建实例
     // 这里可以返回一个状态码表示需要重新创建

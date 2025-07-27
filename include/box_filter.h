@@ -3,6 +3,7 @@
 #include "image_processor.h"
 #include "thread_safe_queue.h"
 #include "event_utils.h"
+#include <mutex>
 
 // 前向声明
 struct PipelineConfig;
@@ -21,6 +22,14 @@ public:
   // 虚析构函数
   virtual ~BoxFilter();
 
+  // 线程安全地设置车道线显示状态
+  void set_lane_show_enabled(bool enabled, const std::string& save_path = "");
+
+  // 设置车道线绘制间隔（帧数）
+  void set_lane_show_interval(int interval);
+
+  void change_params(const PipelineConfig& config)override;
+
 protected:
   // 重写基类的纯虚函数：执行目标框筛选
   virtual void process_image(ImageDataPtr image, int thread_id) override;
@@ -37,6 +46,13 @@ private:
   float top_fraction_;     // 筛选区域上边界比例
   float bottom_fraction_;  // 筛选区域下边界比例
   float times_car_width_ = 3.0f; // 车宽倍数，用于计算车道线位置
+  bool enable_lane_show_ = false; // 是否启用车道线可视化
+  std::string lane_show_image_path_; // 车道线结果图像保存路径
+  int lane_show_interval_ = 200; // 车道线绘制间隔（帧数）
+  mutable int frame_counter_ = 0; // 帧计数器
+  
+  // 互斥锁保护多线程访问
+  mutable std::mutex lane_show_mutex_; // 保护 enable_lane_show_ 的互斥锁
   
   // 具体的目标框筛选算法实现
   void perform_box_filtering(ImageDataPtr image, int thread_id);

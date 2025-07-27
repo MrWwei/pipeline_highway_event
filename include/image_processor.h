@@ -6,6 +6,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include "pipeline_config.h"  
 
 /**
  * 图像处理器基类
@@ -52,6 +53,10 @@ public:
   // 获取处理器名称
   virtual std::string get_processor_name() const;
 
+   virtual void change_params(const PipelineConfig &config);
+
+
+
 protected:
   // 工作线程函数 - 调用派生类的具体处理方法
   void worker_thread_func(int thread_id);
@@ -64,4 +69,6 @@ protected:
 
   // 虚函数：处理后的清理工作，派生类可以重写
   virtual void on_processing_complete(ImageDataPtr image, int thread_id) {}
+
+ 
 };

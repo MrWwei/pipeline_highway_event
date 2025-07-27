@@ -74,7 +74,10 @@ void ImageProcessor::stop() {
 
   std::cout << "⏹️ " << processor_name_ << "处理线程已停止" << std::endl;
 }
-
+void ImageProcessor::change_params(const PipelineConfig &config) {
+  // 默认实现为空，派生类可以重写以更新参数
+  std::cout << "🔧 " << processor_name_ << " 更新参数 (默认实现)" << std::endl;
+}
 void ImageProcessor::add_image(ImageDataPtr image) {
   if (!image) {
     std::cerr << "❌ " << processor_name_ << ": 尝试添加空图像指针" << std::endl;

@@ -29,7 +29,7 @@ SemanticSegmentation::SemanticSegmentation(int num_threads, const PipelineConfig
   // 使用配置参数，如果没有提供则使用默认值
   if (config) {
     init_params.model_path = config->seg_model_path;
-    init_params.enable_show = config->seg_enable_show;
+    init_params.enable_show = config->enable_seg_show;
     init_params.seg_show_image_path = config->seg_show_image_path;
   } else {
     // 默认配置
@@ -40,6 +40,14 @@ SemanticSegmentation::SemanticSegmentation(int num_threads, const PipelineConfig
 
   road_seg_instance_ = createRoadSeg();
   int init_result = road_seg_instance_->init_seg(init_params);
+}
+
+void SemanticSegmentation::set_seg_show_interval(int interval) {
+  std::lock_guard<std::mutex> lock(seg_show_mutex_);
+  if (interval > 0) {
+    seg_show_interval_ = interval;
+    std::cout << "🎯 分割结果保存间隔已设置为: " << interval << " 帧" << std::endl;
+  }
 }
 
 void SemanticSegmentation::process_image(ImageDataPtr image, int thread_id) {
@@ -64,32 +72,16 @@ void SemanticSegmentation::on_processing_complete(ImageDataPtr image,
   // 例如：结果验证、统计信息更新等
 }
 
-// 只负责入队
-void SemanticSegmentation::perform_semantic_segmentation(ImageDataPtr image,
-                                                         int thread_id) {
-
-  // cv::Mat &segInMat = image->segInResizeMat;
-  // std::vector<cv::Mat *> image_ptrs;
-  // image_ptrs.push_back(&segInMat);
-  // SegInputParams input_params(image_ptrs);
-  // SegResult seg_result;
-  // road_seg_instance_->seg_road(input_params, seg_result);
-
-  // // 检查结果是否有效
-  // if (!seg_result.results.empty() &&
-  // !seg_result.results[0].label_map.empty()) {
-  //   image->label_map.resize(seg_result.results[0].label_map.size());
-  //   std::copy(seg_result.results[0].label_map.begin(),
-  //             seg_result.results[0].label_map.end(),
-  //             image->label_map.begin());
-  //   image->mask_height = segInMat.rows;
-  //   image->mask_width = segInMat.cols;
-  // } else {
-  //   image->label_map.resize(image->mask_height * image->mask_width, 0);
-  // }
-  // image->segmentation_complete = true;
-  return;
-}
+  void SemanticSegmentation::change_params(const PipelineConfig &config)  {
+    if (config.enable_seg_show) {
+      enable_seg_show_ = config.enable_seg_show;
+      seg_show_image_path_ = config.seg_show_image_path;
+      SegInitParams update_params;
+      update_params.enable_show = enable_seg_show_;
+      update_params.seg_show_image_path = seg_show_image_path_;
+      road_seg_instance_->change_params(update_params);
+    }
+  }
 
 // 队列处理线程
 void SemanticSegmentation::segmentation_worker() {
@@ -157,6 +149,32 @@ void SemanticSegmentation::segmentation_worker() {
               image->mask_height = image->segInResizeMat.rows;
               image->mask_width = image->segInResizeMat.cols;
 
+              // 线程安全地检查是否需要保存分割结果
+              {
+                std::lock_guard<std::mutex> lock(seg_show_mutex_);
+                seg_frame_counter_++;
+                
+                // 检查是否需要保存分割结果（手动启用或每200帧自动保存一次）
+                // bool should_save_seg = enable_seg_show_ || (seg_frame_counter_ % seg_show_interval_ == 0);
+                bool should_save_seg = enable_seg_show_;
+                
+                if (should_save_seg && !seg_show_image_path_.empty() && !image->label_map.empty()) {
+                  // 将label_map vector转换为cv::Mat进行可视化
+                  cv::Mat seg_mask(image->mask_height, image->mask_width, CV_8UC1, image->label_map.data());
+                  cv::Mat seg_visualization;
+                  cv::applyColorMap(seg_mask, seg_visualization, cv::COLORMAP_JET);
+                  
+                  // 保存分割结果图像
+                  std::string filename = seg_show_image_path_ + "/seg_" + std::to_string(image->frame_idx) + ".jpg";
+                  cv::imwrite(filename, seg_visualization);
+                  
+                  // 如果是自动保存（每200帧），输出提示信息
+                  if (!enable_seg_show_) {
+                    std::cout << "🎨 自动保存分割结果 (第" << seg_frame_counter_ << "帧): " << filename << std::endl;
+                  }
+                }
+              }
+
               // 通知完成 - 先检查是否已经设置
               try {
                 if (image->segmentation_promise && 
@@ -217,6 +235,31 @@ void SemanticSegmentation::segmentation_worker() {
             image->label_map = std::move(seg_result.results[0].label_map);
             image->mask_height = image->segInResizeMat.rows;
             image->mask_width = image->segInResizeMat.cols;
+
+            // 线程安全地检查是否需要保存分割结果
+            {
+              std::lock_guard<std::mutex> lock(seg_show_mutex_);
+              seg_frame_counter_++;
+              
+              // 检查是否需要保存分割结果（手动启用或每200帧自动保存一次）
+              bool should_save_seg = enable_seg_show_ || (seg_frame_counter_ % seg_show_interval_ == 0);
+              
+              if (should_save_seg && !seg_show_image_path_.empty() && !image->label_map.empty()) {
+                // 将label_map vector转换为cv::Mat进行可视化
+                cv::Mat seg_mask(image->mask_height, image->mask_width, CV_8UC1, image->label_map.data());
+                cv::Mat seg_visualization;
+                cv::applyColorMap(seg_mask, seg_visualization, cv::COLORMAP_JET);
+                
+                // 保存分割结果图像
+                std::string filename = seg_show_image_path_ + "/seg_" + std::to_string(image->frame_idx) + ".jpg";
+                cv::imwrite(filename, seg_visualization);
+                
+                // 如果是自动保存（每200帧），输出提示信息
+                if (!enable_seg_show_) {
+                  std::cout << "🎨 自动保存分割结果 (第" << seg_frame_counter_ << "帧): " << filename << std::endl;
+                }
+              }
+            }
 
             // 通知完成 - 先检查是否已经设置
             try {

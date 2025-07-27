@@ -20,6 +20,7 @@ public:
     
     // 实现纯虚函数
     bool initialize(const HighwayEventConfig& config) override;
+    bool change_params(const HighwayEventConfig& config) override;
     bool start() override;
     int64_t add_frame(const cv::Mat& image) override;
     int64_t add_frame(cv::Mat&& image) override;
@@ -110,18 +111,18 @@ ProcessResult HighwayEventDetectorImpl::convert_to_process_result(ImageDataPtr i
         det_box.track_id = box.track_id;
         det_box.status = box.status;
         result.detections.push_back(det_box);
-        cv::rectangle(image_src, 
-                    cv::Point(box.left, box.top), 
-                    cv::Point(box.right, box.bottom), 
-                    cv::Scalar(0, 255, 0), 2);
-        cv::putText(image_src, 
-                  std::to_string(box.track_id), 
-                  cv::Point(box.left, box.top - 5), 
-                  cv::FONT_HERSHEY_SIMPLEX, 
-                  0.5,
-                  cv::Scalar(0, 255, 0), 1);
+        // cv::rectangle(image_src, 
+        //             cv::Point(box.left, box.top), 
+        //             cv::Point(box.right, box.bottom), 
+        //             cv::Scalar(0, 255, 0), 2);
+        // cv::putText(image_src, 
+        //           std::to_string(box.track_id), 
+        //           cv::Point(box.left, box.top - 5), 
+        //           cv::FONT_HERSHEY_SIMPLEX, 
+        //           0.5,
+        //           cv::Scalar(0, 255, 0), 1);
     }
-    cv::imwrite("track_outs/output_" + std::to_string(result.frame_id) + ".jpg", image_src);
+    // cv::imwrite("track_outs/output_" + std::to_string(result.frame_id) + ".jpg", image_src);
     
     // 转换筛选结果
     result.has_filtered_box = image_data->has_filtered_box;
@@ -165,7 +166,7 @@ bool HighwayEventDetectorImpl::initialize(const HighwayEventConfig& config) {
         pipeline_config.enable_box_filter = config.enable_box_filter;
         
         pipeline_config.seg_model_path = config.seg_model_path;
-        pipeline_config.seg_enable_show = config.seg_enable_show;
+        pipeline_config.enable_seg_show = config.enable_seg_show;
         pipeline_config.seg_show_image_path = config.seg_show_image_path;
         pipeline_config.det_algor_name = config.det_algor_name;
         pipeline_config.det_model_path = config.det_model_path;
@@ -182,6 +183,8 @@ bool HighwayEventDetectorImpl::initialize(const HighwayEventConfig& config) {
         pipeline_config.box_filter_bottom_fraction = config.box_filter_bottom_fraction;
         pipeline_config.final_result_queue_capacity = config.result_queue_capacity;
         pipeline_config.times_car_width = config.times_car_width; // 车宽倍数
+        pipeline_config.enable_lane_show = config.enable_lane_show;
+        pipeline_config.lane_show_image_path = config.lane_show_image_path;
         
         // 创建流水线管理器（但不启动）
         pipeline_manager_ = std::make_unique<PipelineManager>(pipeline_config);
@@ -194,6 +197,30 @@ bool HighwayEventDetectorImpl::initialize(const HighwayEventConfig& config) {
         is_initialized_.store(false);
         return false;
     }
+}
+
+bool HighwayEventDetectorImpl::change_params(const HighwayEventConfig& config) {
+    if (!is_initialized_.load()) {
+        std::cerr << "❌ HighwayEventDetector 尚未初始化，请先调用 initialize()" << std::endl;
+        return false;
+    }
+    
+    // 更新配置
+    config_ = config;
+    PipelineConfig pipeline_config;
+    pipeline_config.enable_seg_show = config.enable_seg_show;
+    pipeline_config.enable_lane_show = config.enable_lane_show;
+    pipeline_config.seg_show_image_path = config.seg_show_image_path;
+    pipeline_config.lane_show_image_path = config.lane_show_image_path;
+    pipeline_config.times_car_width = config.times_car_width; // 车宽倍数
+    pipeline_config.box_filter_top_fraction = config.box_filter_top_fraction;
+    pipeline_config.box_filter_bottom_fraction = config.box_filter_bottom_fraction;
+    pipeline_manager_->change_params(pipeline_config);
+    
+    // 这里可以添加更多的参数更新逻辑
+    // 例如，更新流水线管理器的配置等
+    
+    return true;
 }
 
 bool HighwayEventDetectorImpl::start() {
@@ -298,18 +325,18 @@ ProcessResult HighwayEventDetectorImpl::get_result_with_timeout(uint64_t frame_i
         return result;
     }
     
-    if (config_.enable_debug_log) {
-        std::cout << "🔍 开始等待帧 " << frame_id << " 的结果，超时: " << timeout_ms << "ms" << std::endl;
-    }
+    // if (config_.enable_debug_log) {
+    //     std::cout << "🔍 开始等待帧 " << frame_id << " 的结果，超时: " << timeout_ms << "ms" << std::endl;
+    // }
     
     std::unique_lock<std::mutex> lock(result_mutex_);
     
     // 先检查结果是否已经存在
     auto it = completed_results_.find(frame_id);
     if (it != completed_results_.end()) {
-        if (config_.enable_debug_log) {
-            std::cout << "✅ 帧 " << frame_id << " 结果已存在，直接返回" << std::endl;
-        }
+        // if (config_.enable_debug_log) {
+        //     std::cout << "✅ 帧 " << frame_id << " 结果已存在，直接返回" << std::endl;
+        // }
         result = convert_to_process_result(it->second);
         completed_results_.erase(it);
         return result;

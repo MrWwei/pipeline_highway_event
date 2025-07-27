@@ -57,8 +57,10 @@ struct HighwayEventConfig {
     
     // === 调试配置 ===
     bool enable_debug_log = false;                          // 启用调试日志
-    bool seg_enable_show = false;                           // 启用分割结果可视化
+    bool enable_seg_show = false;                           // 启用分割结果可视化
     std::string seg_show_image_path = "./segmentation_results/"; // 分割结果图像保存路径
+    bool enable_lane_show = false;                           // 启用车道线可视化
+    std::string lane_show_image_path = "./lane_results/";   // 车道线结果图像保存路径
     
     // === 超时配置 ===
     int add_timeout_ms = 5000;                              // 添加帧超时时间（毫秒）
@@ -139,12 +141,15 @@ public:
      * @return 成功返回true，失败返回false
      */
     virtual bool initialize(const HighwayEventConfig& config = HighwayEventConfig()) = 0;
+
+    virtual bool change_params(const HighwayEventConfig& config) = 0;
     
     /**
      * 启动流水线
      * @return 成功返回true，失败返回false
      */
     virtual bool start() = 0;
+
     
     /**
      * 添加图像数据到流水线

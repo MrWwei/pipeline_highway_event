@@ -13,6 +13,8 @@ BoxFilter::BoxFilter(int num_threads, const PipelineConfig* config)
     top_fraction_ = config->box_filter_top_fraction;
     bottom_fraction_ = config->box_filter_bottom_fraction;
     times_car_width_ = config->times_car_width; // 车宽倍数
+    enable_lane_show_ = config->enable_lane_show;
+    lane_show_image_path_ = config->lane_show_image_path;
   } else {
     // 默认配置
     top_fraction_ = 4.0f / 7.0f;
@@ -23,6 +25,22 @@ BoxFilter::BoxFilter(int num_threads, const PipelineConfig* config)
 }
 
 BoxFilter::~BoxFilter() {}
+
+void BoxFilter::set_lane_show_enabled(bool enabled, const std::string& save_path) {
+  std::lock_guard<std::mutex> lock(lane_show_mutex_);
+  enable_lane_show_ = enabled;
+  if (!save_path.empty()) {
+    lane_show_image_path_ = save_path;
+  }
+}
+
+void BoxFilter::set_lane_show_interval(int interval) {
+  std::lock_guard<std::mutex> lock(lane_show_mutex_);
+  if (interval > 0) {
+    lane_show_interval_ = interval;
+    std::cout << "🎯 车道线绘制间隔已设置为: " << interval << " 帧" << std::endl;
+  }
+}
 
 void BoxFilter::process_image(ImageDataPtr image, int thread_id) {
   if (!image) {
@@ -36,7 +54,13 @@ void BoxFilter::process_image(ImageDataPtr image, int thread_id) {
 void BoxFilter::on_processing_start(ImageDataPtr image, int thread_id) {
   // std::cout << "📦 目标框筛选准备开始 (线程 " << thread_id << ")" << std::endl;
 }
-
+void BoxFilter::change_params(const PipelineConfig &config) {
+  top_fraction_ = config.box_filter_top_fraction;
+  bottom_fraction_ = config.box_filter_bottom_fraction;
+  times_car_width_ = config.times_car_width; // 车宽倍数
+  enable_lane_show_ = config.enable_lane_show;
+  lane_show_image_path_ = config.lane_show_image_path;
+}
 void BoxFilter::on_processing_complete(ImageDataPtr image, int thread_id) {
   // std::cout << "📦 目标框筛选处理完成 (线程 " << thread_id << ")" << std::endl;
 }
@@ -117,12 +141,32 @@ void BoxFilter::perform_box_filtering(ImageDataPtr image, int thread_id) {
       point.y = static_cast<int>(point.y * image->height / static_cast<double>(image->mask_height));
     } 
     // 判断车辆是否在应急车道内
-    for(auto &detect_box:image->detection_results) {
-      detect_box.status = determineObjectStatus(detect_box, eRes);
-
+    for(auto &track_box:image->track_results) {
+      track_box.status = determineObjectStatus(track_box, eRes);
     }
-
-    // drawEmergencyLaneQuarterPoints(image->imageMat, eRes);
+    
+    // 线程安全地访问车道线显示相关变量
+    std::lock_guard<std::mutex> lock(lane_show_mutex_);
+    
+    // 增加帧计数器
+    frame_counter_++;
+    
+    // 检查是否需要绘制车道线（手动启用或每200帧自动绘制一次）
+    bool should_draw_lane = enable_lane_show_ || (frame_counter_ % lane_show_interval_ == 0);
+    
+    if(should_draw_lane && !lane_show_image_path_.empty()) {
+      // 绘制车道线结果
+      cv::Mat show_mat = image->imageMat.clone();
+      drawEmergencyLaneQuarterPoints(show_mat, eRes);
+      // 保存车道线结果图像
+      std::string filename = lane_show_image_path_ + "/" + std::to_string(image->frame_idx) + ".jpg";
+      cv::imwrite(filename, show_mat);
+      
+      // 如果是自动绘制（每200帧），输出提示信息
+      if (!enable_lane_show_) {
+        std::cout << "🎨 自动绘制车道线结果 (第" << frame_counter_ << "帧): " << filename << std::endl;
+      }
+    }    // drawEmergencyLaneQuarterPoints(image->imageMat, eRes);
     // cv::imwrite("mask_" + std::to_string(image->frame_idx) + ".jpg", image->imageMat);
     // 绘制到原图
 

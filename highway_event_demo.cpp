@@ -64,7 +64,9 @@ public:
         config.enable_tracking = true;
         config.enable_box_filter = true;
         config.enable_mask_postprocess = true;
-        config.times_car_width = 2.6f; // 车宽倍数
+        config.times_car_width = 2.0f; // 车宽倍数
+        config.enable_lane_show = true; // 启用车道线可视化
+        config.lane_show_image_path = "./lane_results/"; // 车道线结果
         
         
         if (!detector_->initialize(config) || !detector_->start()) {

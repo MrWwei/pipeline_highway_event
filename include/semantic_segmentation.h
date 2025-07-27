@@ -5,6 +5,7 @@
 #include "event_utils.h"
 #include <future>
 #include <string>
+#include <mutex>
 
 // 前向声明
 struct PipelineConfig;
@@ -21,6 +22,12 @@ public:
 
   // 析构函数（自定义实现，负责线程清理）
   virtual ~SemanticSegmentation();
+  
+  // 设置分割结果保存间隔（帧数）
+  void set_seg_show_interval(int interval);
+  
+  // 重写参数更新方法
+  virtual void change_params(const PipelineConfig &config) override;
 
 protected:
   // 重写基类的纯虚函数：执行语义分割算法（模拟）
@@ -32,7 +39,7 @@ protected:
   // 重写处理完成后的清理工作
   virtual void on_processing_complete(ImageDataPtr image,
                                       int thread_id) override;
-
+  
 public:
   // 启动处理线程
   void start() override {
@@ -43,6 +50,7 @@ public:
           std::thread(&SemanticSegmentation::segmentation_worker, this);
     }
   }
+
 
   // 停止处理线程
   void stop() override {
@@ -82,12 +90,18 @@ public:
   }
 
 private:
-  // 具体的语义分割算法实现
-  void perform_semantic_segmentation(ImageDataPtr image, int thread_id);
   void segmentation_worker();
 
   std::unique_ptr<ThreadSafeQueue<ImageDataPtr>> segmentation_queue_;
   std::thread worker_thread_;
   std::atomic<bool> stop_worker_;
   IRoadSeg *road_seg_instance_; // 支持多线程的SDK实例列表
+
+  bool enable_seg_show_; // 是否启用分割结果可视化
+  std::string seg_show_image_path_; // 分割结果图像保存路径
+  int seg_show_interval_ = 200; // 分割结果保存间隔（帧数）
+  mutable int seg_frame_counter_ = 0; // 帧计数器
+  
+  // 互斥锁保护多线程访问
+  mutable std::mutex seg_show_mutex_; // 保护分割结果显示相关变量的互斥锁
 };
