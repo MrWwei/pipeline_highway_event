@@ -51,7 +51,7 @@ set(SOURCES
     src/mask_postprocess.cpp
     src/object_detection.cpp
     src/object_tracking.cpp
-    src/box_filter.cpp
+    src/event_determine.cpp
     src/pipeline_manager.cpp
     src/image_data.cpp
     src/event_utils.cc
@@ -66,7 +66,7 @@ set(HEADERS
     include/semantic_segmentation.h
     include/mask_postprocess.h
     include/object_detection.h
-    include/box_filter.h
+    include/event_determine.h
     include/pipeline_manager.h
     include/image_data.h
     include/thread_safe_queue.h
@@ -145,7 +145,7 @@ set(DEMO_SOURCES
     src/mask_postprocess.cpp
     src/object_detection.cpp
     src/object_tracking.cpp
-    src/box_filter.cpp
+    src/event_determine.cpp
     src/pipeline_manager.cpp
     src/image_data.cpp
     src/event_utils.cc

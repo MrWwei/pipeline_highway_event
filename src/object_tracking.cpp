@@ -67,9 +67,9 @@ void ObjectTracking::process_image(ImageDataPtr image, int thread_id) {
   
   // 等待检测promise完成
   try {
+    std::cout << "🔄 跟踪模块等待检测完成，帧: " << image->frame_idx << std::endl;
     image->detection_future.get();
-    // 去除检测完成输出
-    // std::cout << "✅ 检测已完成，准备跟踪，帧 " << image->frame_idx << std::endl;
+    std::cout << "✅ 检测已完成，准备跟踪，帧: " << image->frame_idx << std::endl;
   } catch (const std::exception& e) {
     std::cerr << "❌ 检测阶段失败，跳过跟踪，帧 " << image->frame_idx << ": " << e.what() << std::endl;
     try {
@@ -204,9 +204,10 @@ void ObjectTracking::perform_tracking(ImageDataPtr image) {
     // 直接设置跟踪完成，不执行实际跟踪 - 先检查是否已经设置
     if (image->tracking_promise && 
         image->tracking_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+      std::cout << "✅ 设置跟踪promise完成，帧: " << image->frame_idx << std::endl;
       image->tracking_promise->set_value();
     }
   } catch (const std::future_error& e) {
-    // std::cout << "⚠️ Promise已被设置，帧 " << image->frame_idx << ": " << e.what() << std::endl;
+    std::cout << "⚠️ Promise已被设置，帧 " << image->frame_idx << ": " << e.what() << std::endl;
   }
 }

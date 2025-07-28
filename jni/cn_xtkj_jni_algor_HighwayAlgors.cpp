@@ -314,7 +314,7 @@ JNIEXPORT jintArray JNICALL Java_cn_xtkj_jni_algor_HighwayAlgors_createInstanceC
                     if (vehTargetModelPathField) {
                         jstring vehTargetModelPath = (jstring)env->GetObjectField(firstExample, vehTargetModelPathField);
                         if (vehTargetModelPath) {
-                            config.det_model_path = jstring_to_string(env, vehTargetModelPath);
+                            config.car_det_model_path = jstring_to_string(env, vehTargetModelPath);
                             env->DeleteLocalRef(vehTargetModelPath); // 释放局部引用
                         }
                     }
@@ -335,6 +335,7 @@ JNIEXPORT jintArray JNICALL Java_cn_xtkj_jni_algor_HighwayAlgors_createInstanceC
                         jstring personTargetModelPath = (jstring)env->GetObjectField(firstExample, personTargetModelPathField);
                         if (personTargetModelPath) {
                             // 这里可以设置到config的行人检测模型路径字段，如果有的话
+                            config.pedestrian_det_model_path = jstring_to_string(env, personTargetModelPath);
                             env->DeleteLocalRef(personTargetModelPath); // 释放局部引用
                         }
                     }
@@ -399,7 +400,7 @@ JNIEXPORT jint JNICALL Java_cn_xtkj_jni_algor_HighwayAlgors_changeParam
     }
     // 从参数获取配置
     HighwayEventConfig config = get_config_from_param(env, param);
-    if (config.seg_model_path.empty() || config.det_model_path.empty()) {
+    if (config.seg_model_path.empty() || config.car_det_model_path.empty() || config.pedestrian_det_model_path.empty()) {
         std::cerr << "❌ 模型路径不能为空" << std::endl;
         return -1; // 错误状态
     }

@@ -25,10 +25,12 @@ public:
 
 private:
   xtkj::IDetect *car_detect_instance_; // 目标检测实例
+  xtkj::IDetect *personal_detect_instance_; // 个人物体检测实例
   int det_batch_size = 16; // 批处理大小
   std::unique_ptr<ThreadSafeQueue<ImageDataPtr>> detection_queue_; // 目标检测队列
   std::atomic<bool> stop_worker_; // 控制工作线程的停止
   std::thread worker_thread_; // 工作线程
+  const PipelineConfig* config_; // 保存配置指针
   // 执行目标检测算法
   void perform_object_detection(ImageDataPtr image, int thread_id);
   void detection_worker();

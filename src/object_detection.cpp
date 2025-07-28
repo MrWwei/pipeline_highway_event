@@ -7,7 +7,7 @@
 #include <thread>
 const int det_batch_size = 8;
 ObjectDetection::ObjectDetection(int num_threads, const PipelineConfig* config)
-    : ImageProcessor(0, "目标检测"), stop_worker_(false) { // 设置基类线程数为0
+    : ImageProcessor(0, "目标检测"), stop_worker_(false), config_(config) { // 设置基类线程数为0
 
   // 初始化处理队列
   detection_queue_ =
@@ -18,7 +18,7 @@ ObjectDetection::ObjectDetection(int num_threads, const PipelineConfig* config)
   // 使用配置参数，如果没有提供则使用默认值
   if (config) {
     algor_config.algorName_ = config->det_algor_name;
-    algor_config.model_path = config->det_model_path;
+    algor_config.model_path = config->car_det_model_path;
     algor_config.img_size = config->det_img_size;
     algor_config.conf_thresh = config->det_conf_thresh;
     algor_config.iou_thresh = config->det_iou_thresh;
@@ -46,6 +46,17 @@ ObjectDetection::ObjectDetection(int num_threads, const PipelineConfig* config)
   // 初始化检测器
   car_detect_instance_ = xtkj::createDetect();
   car_detect_instance_->init(algor_config);
+  
+  // 初始化行人检测器（如果启用）
+  if (config && config->enable_pedestrian_detect) {
+    personal_detect_instance_ = xtkj::createDetect();
+    // 为行人检测使用单独的配置，只修改模型路径
+    AlgorConfig person_config = algor_config; // 复制车辆检测配置
+    person_config.model_path = config->pedestrian_det_model_path;
+    personal_detect_instance_->init(person_config);
+  } else {
+    personal_detect_instance_ = nullptr;
+  }
   // std::cout << "🔍 目标检测模块初始化完成（正常模式）" << std::endl;
 
   // 启动工作线程
@@ -141,11 +152,47 @@ void ObjectDetection::detection_worker() {
     // 仅在调试时显示批次信息
     // std::cout << "📊 检测批次: " << batch_images.size() << " 帧" << std::endl;
 
-    // 等待所有图像的 Mask 后处理完成
+    // 等待所有图像的 Mask 后处理完成（仅在语义分割和mask后处理都启用时）
     for (auto& img : batch_images) {
       try {
-        // 去除等待打印信息
-        img->mask_postprocess_future.get(); // 阻塞等待
+        std::cout << "步骤2: 等待批量处理完成并获取结果, 帧: " << img->frame_idx << std::endl;
+        
+        // 检查当前配置状态
+        bool seg_enabled = config_ && config_->enable_segmentation;
+        bool mask_enabled = config_ && config_->enable_mask_postprocess;
+        std::cout << "配置状态 - 语义分割: " << (seg_enabled ? "启用" : "禁用") 
+                  << ", Mask后处理: " << (mask_enabled ? "启用" : "禁用") 
+                  << ", 帧: " << img->frame_idx << std::endl;
+        
+        // 只有在语义分割和mask后处理都启用时才等待mask后处理完成
+        if (seg_enabled && mask_enabled) {
+          std::cout << "等待mask后处理完成，帧: " << img->frame_idx << std::endl;
+          // 使用超时等待避免死锁
+          auto status = img->mask_postprocess_future.wait_for(std::chrono::seconds(5));
+          if (status == std::future_status::ready) {
+            img->mask_postprocess_future.get(); // 获取结果
+            std::cout << "mask后处理已完成，帧: " << img->frame_idx << std::endl;
+          } else if (status == std::future_status::timeout) {
+            std::cerr << "❌ Mask后处理超时（5秒），跳过，帧: " << img->frame_idx << std::endl;
+            continue; // 跳过这个图像
+          } else {
+            std::cerr << "❌ Mask后处理状态异常，跳过，帧: " << img->frame_idx << std::endl;
+            continue; // 跳过这个图像
+          }
+        } else {
+          // 如果语义分割或mask后处理被禁用，确保promise已被设置
+          auto status = img->mask_postprocess_future.wait_for(std::chrono::milliseconds(1));
+          if (status != std::future_status::ready) {
+            std::cout << "🔧 手动设置mask后处理promise（模块已禁用），帧: " << img->frame_idx << std::endl;
+            if (img->mask_postprocess_promise) {
+              img->mask_postprocess_promise->set_value();
+            }
+          } else {
+            std::cout << "mask后处理promise已设置（模块已禁用），帧: " << img->frame_idx << std::endl;
+          }
+        }
+        
+        std::cout << "步骤2: 完成, 帧: " << img->frame_idx << std::endl;
       } catch (const std::exception& e) {
         std::cerr << "❌ Mask后处理失败，帧 " << img->frame_idx << ": " << e.what() << std::endl;
         // 如果 Mask 后处理失败，跳过这个图像的目标检测
@@ -165,48 +212,86 @@ void ObjectDetection::detection_worker() {
         mats.push_back(cropped_image);
       }
       
-      // 内存优化：预分配检测结果数组
-      std::vector<detect_result_group_t*> outs;
-      outs.reserve(batch_images.size());
+      // 车辆检测
+      std::vector<detect_result_group_t*> car_outs;
+      car_outs.reserve(batch_images.size());
       for (size_t i = 0; i < batch_images.size(); ++i) {
-        outs.push_back(new detect_result_group_t());
+        car_outs.push_back(new detect_result_group_t());
       }
       
-      car_detect_instance_->forward(mats, outs.data());
+      car_detect_instance_->forward(mats, car_outs.data());
+      
+      // 行人检测（如果启用）
+      std::vector<detect_result_group_t*> person_outs;
+      if (personal_detect_instance_) {
+        person_outs.reserve(batch_images.size());
+        for (size_t i = 0; i < batch_images.size(); ++i) {
+          person_outs.push_back(new detect_result_group_t());
+        }
+        personal_detect_instance_->forward(mats, person_outs.data());
+      }
       
       // 处理每个图像的检测结果
       for (size_t idx = 0; idx < batch_images.size(); ++idx) {
         auto &image = batch_images[idx];
-        if (outs[idx]->count > 0) {
-          for (int i = 0; i < outs[idx]->count; ++i) {
-            detect_result_t &result = outs[idx]->results[i];
+        std::cout << "🔄 处理检测结果，帧: " << image->frame_idx << std::endl;
+        int total_detections = 0;
+        
+        // 处理车辆检测结果 (class_id保持原值，通常是0)
+        if (car_outs[idx]->count > 0) {
+          for (int i = 0; i < car_outs[idx]->count; ++i) {
+            detect_result_t &result = car_outs[idx]->results[i];
             image->detection_results.push_back({
-                result.box.left+image->roi.x, result.box.top+image->roi.y, result.box.right+image->roi.x, result.box.bottom+image->roi.y,
+                result.box.left+image->roi.x, result.box.top+image->roi.y, 
+                result.box.right+image->roi.x, result.box.bottom+image->roi.y,
                 result.prop, result.cls_id, result.track_id});
           }
-          // 去除检测完成输出
-          // std::cout << "✅ 目标检测完成 (帧 " << image->frame_idx << ")，检测到 " << outs[idx]->count << " 个目标" << std::endl;
-        } else {
-          // 去除未检测到目标的输出
-          // std::cout << "⚠️ 目标检测完成 (帧 " << image->frame_idx << ")，但未检测到目标" << std::endl;
+          total_detections += car_outs[idx]->count;
         }
+        
+        // 处理行人检测结果 (class_id设置为1)
+        if (personal_detect_instance_ && person_outs[idx]->count > 0) {
+          for (int i = 0; i < person_outs[idx]->count; ++i) {
+            detect_result_t &result = person_outs[idx]->results[i];
+            image->detection_results.push_back({
+                result.box.left+image->roi.x, result.box.top+image->roi.y, 
+                result.box.right+image->roi.x, result.box.bottom+image->roi.y,
+                result.prop, 1, result.track_id}); // 行人检测类别ID设置为1
+          }
+          total_detections += person_outs[idx]->count;
+        }
+        
+        // if (total_detections > 0) {
+        //   // 去除检测完成输出
+        //   // std::cout << "✅ 目标检测完成 (帧 " << image->frame_idx << ")，检测到 " << total_detections << " 个目标" << std::endl;
+        // } else {
+        //   // 去除未检测到目标的输出
+        //   // std::cout << "⚠️ 目标检测完成 (帧 " << image->frame_idx << ")，但未检测到目标" << std::endl;
+        // }
         
         // 设置promise完成 - 先检查是否已经设置
         try {
           if (image->detection_promise && 
               image->detection_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+            std::cout << "✅ 设置检测promise完成，帧: " << image->frame_idx << std::endl;
             image->detection_promise->set_value();
           }
         } catch (const std::future_error& e) {
-          // std::cout << "⚠️ Promise已被设置，帧 " << image->frame_idx << ": " << e.what() << std::endl;
+          std::cout << "⚠️ Promise已被设置，帧 " << image->frame_idx << ": " << e.what() << std::endl;
         }
       }
       
-      // 内存优化：使用vector自动管理内存
-      for (auto* result : outs) {
-        delete result; // 释放每个结果组
+      // 内存优化：释放车辆检测结果
+      for (auto* result : car_outs) {
+        delete result;
       }
-      // vector会自动释放
+      
+      // 内存优化：释放行人检测结果
+      if (personal_detect_instance_) {
+        for (auto* result : person_outs) {
+          delete result;
+        }
+      }
     } catch (const std::exception &e) {
       std::cerr << "目标检测处理失败: " << e.what() << std::endl;
       // 设置异常状态
@@ -252,6 +337,11 @@ ObjectDetection::~ObjectDetection() {
   if (car_detect_instance_) {
     delete car_detect_instance_;
     car_detect_instance_ = nullptr;
+  }
+  
+  if (personal_detect_instance_) {
+    delete personal_detect_instance_;
+    personal_detect_instance_ = nullptr;
   }
   
   // std::cout << "✅ 目标检测模块已停止" << std::endl;

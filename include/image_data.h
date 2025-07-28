@@ -49,8 +49,8 @@ struct ImageData {
   // 目标框筛选结果
   BoundingBox filtered_box;  // 筛选出的宽度最小的目标框
   bool has_filtered_box;     // 是否有筛选结果
-  std::shared_ptr<std::promise<void>> box_filter_promise;
-  std::shared_future<void> box_filter_future;
+  std::shared_ptr<std::promise<void>> event_determine_promise;
+  std::shared_future<void> event_determine_future;
 
   // 目标跟踪阶段的同步原语
   std::shared_ptr<std::promise<void>> tracking_promise;
@@ -67,8 +67,8 @@ struct ImageData {
     mask_postprocess_future = mask_postprocess_promise->get_future();
     detection_promise = std::make_shared<std::promise<void>>();
     detection_future = detection_promise->get_future();
-    box_filter_promise = std::make_shared<std::promise<void>>();
-    box_filter_future = box_filter_promise->get_future();
+    event_determine_promise = std::make_shared<std::promise<void>>();
+    event_determine_future = event_determine_promise->get_future();
     tracking_promise = std::make_shared<std::promise<void>>();
     tracking_future = tracking_promise->get_future();
   }

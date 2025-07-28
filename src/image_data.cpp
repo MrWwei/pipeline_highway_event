@@ -18,9 +18,9 @@ ImageData::~ImageData() {
         detection_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
       detection_promise->set_value();
     }
-    if (box_filter_promise && 
-        box_filter_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
-      box_filter_promise->set_value();
+    if (event_determine_promise &&
+        event_determine_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+      event_determine_promise->set_value();
     }
     if (tracking_promise && 
         tracking_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {

@@ -26,7 +26,8 @@ struct HighwayEventConfig {
     
     // === 模型配置 ===
     std::string seg_model_path = "seg_model";               // 语义分割模型路径
-    std::string det_model_path = "car_detect.onnx";         // 目标检测模型路径
+    std::string car_det_model_path = "car_detect.onnx";         // 目标检测模型路径
+    std::string pedestrian_det_model_path = "Pedestrain_TAG1_yl_S640_V1.2.onnx"; // 行人检测模型路径
     
     // === 检测配置 ===
     std::string det_algor_name = "object_detect";           // 算法名称
@@ -50,10 +51,13 @@ struct HighwayEventConfig {
 
     
     // === 模块开关配置 ===
+    bool enable_segmentation = true;       // 启用语义分割模块
     bool enable_mask_postprocess = true;                   // 启用Mask后处理模块
     bool enable_detection = true;                           // 启用目标检测模块
     bool enable_tracking = true;                            // 启用目标跟踪模块
     bool enable_box_filter = true;                          // 启用目标框筛选模块
+
+    bool enable_pedestrian_detect = false;                  // 是否启用行人检测
     
     // === 调试配置 ===
     bool enable_debug_log = false;                          // 启用调试日志

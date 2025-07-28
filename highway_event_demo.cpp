@@ -52,6 +52,7 @@ public:
         
         // 配置高性能参数
         HighwayEventConfig config;
+        
         config.semantic_threads = 6;
         config.mask_threads = 6;
         config.detection_threads = 6;
@@ -59,14 +60,16 @@ public:
         config.filter_threads = 3;
         config.result_queue_capacity = 50; // 适合批量处理的队列大小
         config.enable_debug_log = false;
+        config.enable_segmentation = true; // 关闭语义分割以提高速度
         config.get_timeout_ms = 30000; // 增加超时时间适应批量处理
         config.enable_detection = true;
         config.enable_tracking = true;
-        config.enable_box_filter = true;
-        config.enable_mask_postprocess = true;
-        config.times_car_width = 2.0f; // 车宽倍数
-        config.enable_lane_show = true; // 启用车道线可视化
+        config.enable_box_filter = true;   // 语义分割关闭时，事件判定也必须关闭
+        config.enable_mask_postprocess = true; // 语义分割关闭时，mask后处理也必须关闭
+        config.times_car_width = 2.2f; // 车宽倍数
+        config.enable_lane_show = false; // 语义分割关闭时，车道线可视化也关闭
         config.lane_show_image_path = "./lane_results/"; // 车道线结果
+        config.enable_pedestrian_detect = true;
         
         
         if (!detector_->initialize(config) || !detector_->start()) {

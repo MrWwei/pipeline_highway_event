@@ -1,4 +1,4 @@
-#include "box_filter.h"
+#include "event_determine.h"
 #include "pipeline_manager.h"
 #include <chrono>
 #include <future>
@@ -6,12 +6,12 @@
 #include <limits>
 
 
-BoxFilter::BoxFilter(int num_threads, const PipelineConfig* config)
-    : ImageProcessor(num_threads, "目标框筛选") {
+EventDetermine::EventDetermine(int num_threads, const PipelineConfig* config)
+    : ImageProcessor(num_threads, "事件判定") {
   // 使用配置参数，如果没有提供则使用默认值
   if (config) {
-    top_fraction_ = config->box_filter_top_fraction;
-    bottom_fraction_ = config->box_filter_bottom_fraction;
+    top_fraction_ = config->event_determine_top_fraction;
+    bottom_fraction_ = config->event_determine_bottom_fraction;
     times_car_width_ = config->times_car_width; // 车宽倍数
     enable_lane_show_ = config->enable_lane_show;
     lane_show_image_path_ = config->lane_show_image_path;
@@ -21,12 +21,12 @@ BoxFilter::BoxFilter(int num_threads, const PipelineConfig* config)
     bottom_fraction_ = 8.0f / 9.0f;
     times_car_width_ = 3.0f; // 默认车宽倍数
   }
-  // std::cout << "🔍 目标框筛选模块初始化完成" << std::endl;
+  // std::cout << "🔍 事件判定模块初始化完成" << std::endl;
 }
 
-BoxFilter::~BoxFilter() {}
+EventDetermine::~EventDetermine() {}
 
-void BoxFilter::set_lane_show_enabled(bool enabled, const std::string& save_path) {
+void EventDetermine::set_lane_show_enabled(bool enabled, const std::string& save_path) {
   std::lock_guard<std::mutex> lock(lane_show_mutex_);
   enable_lane_show_ = enabled;
   if (!save_path.empty()) {
@@ -34,7 +34,7 @@ void BoxFilter::set_lane_show_enabled(bool enabled, const std::string& save_path
   }
 }
 
-void BoxFilter::set_lane_show_interval(int interval) {
+void EventDetermine::set_lane_show_interval(int interval) {
   std::lock_guard<std::mutex> lock(lane_show_mutex_);
   if (interval > 0) {
     lane_show_interval_ = interval;
@@ -42,30 +42,30 @@ void BoxFilter::set_lane_show_interval(int interval) {
   }
 }
 
-void BoxFilter::process_image(ImageDataPtr image, int thread_id) {
+void EventDetermine::process_image(ImageDataPtr image, int thread_id) {
   if (!image) {
-    std::cerr << "Error: Invalid image data in BoxFilter::process_image" << std::endl;
+    std::cerr << "Error: Invalid image data in EventDetermine::process_image" << std::endl;
     return;
   }
   
-  perform_box_filtering(image, thread_id);
+  perform_event_determination(image, thread_id);
 }
 
-void BoxFilter::on_processing_start(ImageDataPtr image, int thread_id) {
-  // std::cout << "📦 目标框筛选准备开始 (线程 " << thread_id << ")" << std::endl;
+void EventDetermine::on_processing_start(ImageDataPtr image, int thread_id) {
+  // std::cout << "📦 事件判定准备开始 (线程 " << thread_id << ")" << std::endl;
 }
-void BoxFilter::change_params(const PipelineConfig &config) {
-  top_fraction_ = config.box_filter_top_fraction;
-  bottom_fraction_ = config.box_filter_bottom_fraction;
+void EventDetermine::change_params(const PipelineConfig &config) {
+  top_fraction_ = config.event_determine_top_fraction;
+  bottom_fraction_ = config.event_determine_bottom_fraction;
   times_car_width_ = config.times_car_width; // 车宽倍数
   enable_lane_show_ = config.enable_lane_show;
   lane_show_image_path_ = config.lane_show_image_path;
 }
-void BoxFilter::on_processing_complete(ImageDataPtr image, int thread_id) {
-  // std::cout << "📦 目标框筛选处理完成 (线程 " << thread_id << ")" << std::endl;
+void EventDetermine::on_processing_complete(ImageDataPtr image, int thread_id) {
+  // std::cout << "📦 事件判定处理完成 (线程 " << thread_id << ")" << std::endl;
 }
 
-void BoxFilter::perform_box_filtering(ImageDataPtr image, int thread_id) {
+void EventDetermine::perform_event_determination(ImageDataPtr image, int thread_id) {
   auto start_time = std::chrono::high_resolution_clock::now();
   
   if (image->detection_results.empty()) {
@@ -74,9 +74,9 @@ void BoxFilter::perform_box_filtering(ImageDataPtr image, int thread_id) {
     image->has_filtered_box = false;
     // 设置promise完成 - 先检查是否已经设置
     try {
-      if (image->box_filter_promise && 
-          image->box_filter_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
-        image->box_filter_promise->set_value();
+      if (image->event_determine_promise && 
+          image->event_determine_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+        image->event_determine_promise->set_value();
       }
     } catch (const std::future_error& e) {
       // std::cout << "⚠️ Promise已被设置，帧 " << image->frame_idx << ": " << e.what() << std::endl;
@@ -85,7 +85,7 @@ void BoxFilter::perform_box_filtering(ImageDataPtr image, int thread_id) {
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
         end_time - start_time);
     // 去除筛选完成输出
-    // std::cout << "✅ 目标框筛选完成 (无目标)，耗时: " << duration.count() << "ms" << std::endl;
+    // std::cout << "✅ 事件判定完成 (无目标)，耗时: " << duration.count() << "ms" << std::endl;
     return;
   }
   
@@ -184,9 +184,9 @@ void BoxFilter::perform_box_filtering(ImageDataPtr image, int thread_id) {
   
   // 设置promise完成 - 先检查是否已经设置
   try {
-    if (image->box_filter_promise && 
-        image->box_filter_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
-      image->box_filter_promise->set_value();
+    if (image->event_determine_promise && 
+        image->event_determine_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+      image->event_determine_promise->set_value();
     }
   } catch (const std::future_error& e) {
     // std::cout << "⚠️ Promise已被设置，帧 " << image->frame_idx << ": " << e.what() << std::endl;
@@ -195,21 +195,21 @@ void BoxFilter::perform_box_filtering(ImageDataPtr image, int thread_id) {
   auto end_time = std::chrono::high_resolution_clock::now();
   auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
       end_time - start_time);
-  // std::cout << "✅ 目标框筛选完成，耗时: " << duration.count() << "ms" << std::endl;
+  // std::cout << "✅ 事件判定完成，耗时: " << duration.count() << "ms" << std::endl;
 }
 
-int BoxFilter::calculate_box_width(const ImageData::BoundingBox& box) const {
+int EventDetermine::calculate_box_width(const ImageData::BoundingBox& box) const {
   return box.right - box.left;
 }
 
-bool BoxFilter::is_box_in_region(const ImageData::BoundingBox& box, 
+bool EventDetermine::is_box_in_region(const ImageData::BoundingBox& box, 
                                  int region_top, int region_bottom) const {
   // 检查目标框的中心点是否在指定区域内
   int box_center_y = (box.top + box.bottom) / 2;
   return box_center_y >= region_top && box_center_y <= region_bottom;
 }
 
-ImageData::BoundingBox* BoxFilter::find_min_width_box_in_region(
+ImageData::BoundingBox* EventDetermine::find_min_width_box_in_region(
     const std::vector<ImageData::BoundingBox>& boxes,
     int region_top, int region_bottom) const {
   
@@ -232,7 +232,7 @@ ImageData::BoundingBox* BoxFilter::find_min_width_box_in_region(
 }
 
 void
-  BoxFilter::drawEmergencyLaneQuarterPoints(cv::Mat &image,
+  EventDetermine::drawEmergencyLaneQuarterPoints(cv::Mat &image,
                                  const EmergencyLaneResult &emergency_lane) {
     if (!emergency_lane.is_valid) {
       return;
@@ -275,7 +275,7 @@ void
   }
 
   ObjectStatus
-  BoxFilter::determineObjectStatus(const ImageData::BoundingBox &box,
+  EventDetermine::determineObjectStatus(const ImageData::BoundingBox &box,
                         const EmergencyLaneResult &emergency_lane) {
     if (!emergency_lane.is_valid) {
       return ObjectStatus::NORMAL;

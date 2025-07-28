@@ -6,25 +6,32 @@
 #include <future>
 
 PipelineManager::PipelineManager(const PipelineConfig& config)
-    : running_(false), next_frame_idx_(0), final_results_(config.final_result_queue_capacity), config_(config) {
-  semantic_seg_ = std::make_unique<SemanticSegmentation>(config.semantic_threads, &config);
+    : running_(false), next_frame_idx_(0), final_results_(config.final_result_queue_capacity), config_(config), 
+      direct_detection_queue_(config.final_result_queue_capacity) {
+  
+  // 根据开关决定是否创建语义分割模块
+  if (config.enable_segmentation) {
+    semantic_seg_ = std::make_unique<SemanticSegmentation>(config.semantic_threads, &config);
+  }
   
   // 根据开关决定是否创建模块
-  if (config.enable_mask_postprocess) {
-    mask_postprocess_ =
-        std::make_unique<MaskPostProcess>(config.mask_postprocess_threads);
+  // 注意：mask后处理和event_determine依赖于语义分割，如果语义分割禁用，它们也必须禁用
+  if (config.enable_segmentation && config.enable_mask_postprocess) {
+    mask_postprocess_ = std::make_unique<MaskPostProcess>(config.mask_postprocess_threads);
   }
   
   if (config.enable_detection) {
     object_det_ = std::make_unique<ObjectDetection>(config.detection_threads, &config);
   }
   
-  if (config.enable_tracking) {
+  // 目标跟踪依赖于目标检测，如果检测禁用，跟踪也必须禁用
+  if (config.enable_detection && config.enable_tracking) {
     object_track_ = std::make_unique<ObjectTracking>(config.tracking_threads);
   }
   
-  if (config.enable_box_filter) {
-    box_filter_ = std::make_unique<BoxFilter>(config.box_filter_threads, &config);
+  // event_determine依赖于语义分割的mask结果，如果语义分割禁用，event_determine也必须禁用
+  if (config.enable_segmentation && config.enable_event_determine) {
+    event_determine_ = std::make_unique<EventDetermine>(config.event_determine_threads, &config);
   }
 }
 PipelineManager::~PipelineManager() { stop(); }
@@ -45,15 +52,22 @@ void PipelineManager::start() {
   }
 
   // 启动各个处理模块（根据配置）
-  semantic_seg_->start();
-
-  std::cout << "🔄 语义分割模块已启动，线程数: " << config_.semantic_threads << std::endl;
+  if (config_.enable_segmentation && semantic_seg_) {
+    semantic_seg_->start();
+    std::cout << "🔄 语义分割模块已启动，线程数: " << config_.semantic_threads << std::endl;
+  } else {
+    std::cout << "⚠️ 语义分割模块已禁用" << std::endl;
+  }
   
-  if (config_.enable_mask_postprocess && mask_postprocess_) {
+  if (config_.enable_segmentation && config_.enable_mask_postprocess && mask_postprocess_) {
     mask_postprocess_->start();
     std::cout << "🔍 Mask后处理模块已启用" << std::endl;
   } else {
-    std::cout << "⚠️ Mask后处理模块已禁用" << std::endl;
+    if (!config_.enable_segmentation) {
+      std::cout << "⚠️ Mask后处理模块已禁用 (语义分割已禁用)" << std::endl;
+    } else {
+      std::cout << "⚠️ Mask后处理模块已禁用" << std::endl;
+    }
   }
   
   if (config_.enable_detection && object_det_) {
@@ -63,18 +77,26 @@ void PipelineManager::start() {
     std::cout << "⚠️ 目标检测模块已禁用" << std::endl;
   }
   
-  if (config_.enable_tracking && object_track_) {
+  if (config_.enable_detection && config_.enable_tracking && object_track_) {
     object_track_->start();
     std::cout << "🎯 目标跟踪模块已启用" << std::endl;
   } else {
-    std::cout << "⚠️ 目标跟踪模块已禁用" << std::endl;
+    if (!config_.enable_detection) {
+      std::cout << "⚠️ 目标跟踪模块已禁用 (目标检测已禁用)" << std::endl;
+    } else {
+      std::cout << "⚠️ 目标跟踪模块已禁用" << std::endl;
+    }
   }
   
-  if (config_.enable_box_filter && box_filter_) {
-    box_filter_->start();
-    std::cout << "📋 目标框筛选模块已启用" << std::endl;
+  if (config_.enable_segmentation && config_.enable_event_determine && event_determine_) {
+    event_determine_->start();
+    std::cout << "📋 事件判定模块已启用" << std::endl;
   } else {
-    std::cout << "⚠️ 目标框筛选模块已禁用" << std::endl;
+    if (!config_.enable_segmentation) {
+      std::cout << "⚠️ 事件判定模块已禁用 (语义分割已禁用)" << std::endl;
+    } else {
+      std::cout << "⚠️ 事件判定模块已禁用" << std::endl;
+    }
   }
 
   // 启动各阶段的协调线程
@@ -82,10 +104,10 @@ void PipelineManager::start() {
       std::thread(&PipelineManager::seg_to_mask_thread_func, this);
   mask_to_detect_thread_ =
       std::thread(&PipelineManager::mask_to_detect_thread_func, this);
-  track_to_filter_thread_ =
-      std::thread(&PipelineManager::track_to_filter_thread_func, this);
-  filter_to_final_thread_ =
-      std::thread(&PipelineManager::filter_to_final_thread_func, this);
+  track_to_event_thread_ =
+      std::thread(&PipelineManager::track_to_event_thread_func, this);
+  event_to_final_thread_ =
+      std::thread(&PipelineManager::event_to_final_thread_func, this);
 }
 
 void PipelineManager::stop() {
@@ -97,8 +119,10 @@ void PipelineManager::stop() {
   running_.store(false);
 
   // 停止各个处理模块
-  std::cout << "停止语义分割模块..." << std::endl;
-  semantic_seg_->stop();
+  if (semantic_seg_) {
+    std::cout << "停止语义分割模块..." << std::endl;
+    semantic_seg_->stop();
+  }
   
   if (mask_postprocess_) {
     std::cout << "停止Mask后处理模块..." << std::endl;
@@ -115,9 +139,9 @@ void PipelineManager::stop() {
     object_track_->stop();
   }
   
-  if (box_filter_) {
-    std::cout << "停止目标框筛选模块..." << std::endl;
-    box_filter_->stop();
+  if (event_determine_) {
+    std::cout << "停止事件判定模块..." << std::endl;
+    event_determine_->stop();
   }
 
   std::cout << "等待协调线程结束..." << std::endl;
@@ -145,8 +169,8 @@ void PipelineManager::stop() {
   
   join_with_timeout(seg_to_mask_thread_, "seg_to_mask");
   join_with_timeout(mask_to_detect_thread_, "mask_to_detect");
-  join_with_timeout(track_to_filter_thread_, "track_to_filter");
-  join_with_timeout(filter_to_final_thread_, "filter_to_final");
+  join_with_timeout(track_to_event_thread_, "track_to_event");
+  join_with_timeout(event_to_final_thread_, "event_to_final");
 
   // 清理流水线管理器自己的队列和资源
   std::cout << "清理流水线队列和缓存..." << std::endl;
@@ -166,8 +190,102 @@ void PipelineManager::add_image(const ImageDataPtr &img_data) {
     return;
   }
 
-  // 直接将图像数据添加到语义分割队列（流水线的第一步）
-  semantic_seg_->add_image(img_data);
+  // 根据配置预先设置跳过的模块的promise，确保在添加到任何队列之前完成
+  // 这样可以避免race condition
+  
+  // 如果语义分割被禁用，立即设置分割promise为完成状态
+  if (!config_.enable_segmentation) {
+    if (img_data->segmentation_promise && 
+        img_data->segmentation_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+      img_data->segmentation_promise->set_value();
+    }
+  }
+  
+  // 如果mask后处理被禁用，立即设置mask后处理promise为完成状态
+  if (!config_.enable_segmentation || !config_.enable_mask_postprocess) {
+    // 设置默认ROI（整个图像）
+    img_data->roi = cv::Rect(0, 0, img_data->width, img_data->height);
+    if (img_data->mask_postprocess_promise && 
+        img_data->mask_postprocess_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+      img_data->mask_postprocess_promise->set_value();
+    }
+  }
+  
+  // 如果检测被禁用，立即设置检测promise为完成状态
+  if (!config_.enable_detection) {
+    img_data->detection_results.clear();
+    if (img_data->detection_promise && 
+        img_data->detection_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+      img_data->detection_promise->set_value();
+    }
+  }
+  
+  // 如果跟踪被禁用，立即设置跟踪promise为完成状态
+  if (!config_.enable_detection || !config_.enable_tracking) {
+    img_data->track_results = img_data->detection_results;
+    if (img_data->tracking_promise &&
+        img_data->tracking_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+      img_data->tracking_promise->set_value();
+    }
+  }
+  
+  // 如果事件判定被禁用，立即设置事件判定promise为完成状态
+  if (!config_.enable_segmentation || !config_.enable_event_determine) {
+    if (img_data->event_determine_promise &&
+        img_data->event_determine_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+      img_data->event_determine_promise->set_value();
+    }
+  }
+
+  // 根据配置决定流转路径
+  if (config_.enable_segmentation && semantic_seg_) {
+    // 启用语义分割：将图像数据添加到语义分割队列（流水线的第一步）
+    semantic_seg_->add_image(img_data);
+  } else {
+    // 跳过语义分割：直接进入检测阶段
+    if (config_.enable_detection && object_det_) {
+      object_det_->add_image(img_data);
+      // 将图像添加到直接检测队列，以便后续线程能够处理检测完成的图像
+      direct_detection_queue_.push(img_data);
+    } else {
+      // 跳过检测，继续后续处理
+      handle_image_without_detection(img_data);
+    }
+  }
+}
+
+void PipelineManager::handle_image_without_detection(const ImageDataPtr &img_data) {
+  // 设置默认的检测结果
+  img_data->detection_results.clear();
+  if (img_data->detection_promise && 
+      img_data->detection_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+    img_data->detection_promise->set_value();
+  }
+  
+  // 根据配置决定下一步处理
+  if (config_.enable_tracking && object_track_) {
+    // 启用跟踪：添加到跟踪队列
+    object_track_->add_image(img_data);
+  } else {
+    // 跳过跟踪：设置默认跟踪结果
+    img_data->track_results = img_data->detection_results; // 复制检测结果（空的）
+    if (img_data->tracking_promise &&
+        img_data->tracking_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+      img_data->tracking_promise->set_value();
+    }
+    
+    // 检查event_determine是否启用（注意：如果语义分割禁用，event_determine也会被禁用）
+    if (config_.enable_segmentation && config_.enable_event_determine && event_determine_) {
+      event_determine_->add_image(img_data);
+    } else {
+      // 跳过事件判定：设置默认事件判定结果并添加到最终结果
+      if (img_data->event_determine_promise &&
+          img_data->event_determine_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+        img_data->event_determine_promise->set_value();
+      }
+      final_results_.push(img_data);
+    }
+  }
 }
 
 bool PipelineManager::get_final_result(ImageDataPtr &result) {
@@ -183,17 +301,21 @@ void PipelineManager::print_status() const {
             << std::endl;
 
   // 语义分割阶段
-  std::cout << "📊 语义分割阶段" << std::endl;
-  std::cout << "   输入队列: ["
-            << std::string(semantic_seg_->get_queue_size() > 0 ? "🟢" : "⚪")
-            << "] " << semantic_seg_->get_queue_size() << std::endl;
-  std::cout << "   输出队列: ["
-            << std::string(semantic_seg_->get_output_queue_size() > 0 ? "🟢"
-                                                                      : "⚪")
-            << "] " << semantic_seg_->get_output_queue_size() << std::endl;
+  if (config_.enable_segmentation && semantic_seg_) {
+    std::cout << "📊 语义分割阶段 [启用]" << std::endl;
+    std::cout << "   输入队列: ["
+              << std::string(semantic_seg_->get_queue_size() > 0 ? "🟢" : "⚪")
+              << "] " << semantic_seg_->get_queue_size() << std::endl;
+    std::cout << "   输出队列: ["
+              << std::string(semantic_seg_->get_output_queue_size() > 0 ? "🟢"
+                                                                        : "⚪")
+              << "] " << semantic_seg_->get_output_queue_size() << std::endl;
+  } else {
+    std::cout << "📊 语义分割阶段 [已禁用]" << std::endl;
+  }
 
   // Mask后处理阶段
-  if (config_.enable_mask_postprocess && mask_postprocess_) {
+  if (config_.enable_segmentation && config_.enable_mask_postprocess && mask_postprocess_) {
     std::cout << "\n📊 Mask后处理阶段 [启用]" << std::endl;
     std::cout << "   输入队列: ["
               << std::string(mask_postprocess_->get_queue_size() > 0 ? "🟢"
@@ -205,7 +327,11 @@ void PipelineManager::print_status() const {
                                  : "⚪")
               << "] " << mask_postprocess_->get_output_queue_size() << std::endl;
   } else {
-    std::cout << "\n📊 Mask后处理阶段 [已禁用]" << std::endl;
+    if (!config_.enable_segmentation) {
+      std::cout << "\n📊 Mask后处理阶段 [已禁用 - 语义分割已禁用]" << std::endl;
+    } else {
+      std::cout << "\n📊 Mask后处理阶段 [已禁用]" << std::endl;
+    }
   }
 
   // 目标检测阶段
@@ -223,7 +349,7 @@ void PipelineManager::print_status() const {
   }
 
   // 目标跟踪阶段
-  if (config_.enable_tracking && object_track_) {
+  if (config_.enable_detection && config_.enable_tracking && object_track_) {
     std::cout << "\n🎯 目标跟踪阶段 [启用]" << std::endl;
     std::cout << "   输入队列: ["
               << std::string(object_track_->get_queue_size() > 0 ? "🟢" : "⚪")
@@ -233,21 +359,29 @@ void PipelineManager::print_status() const {
                                                                         : "⚪")
               << "] " << object_track_->get_output_queue_size() << std::endl;
   } else {
-    std::cout << "\n🎯 目标跟踪阶段 [已禁用]" << std::endl;
+    if (!config_.enable_detection) {
+      std::cout << "\n🎯 目标跟踪阶段 [已禁用 - 目标检测已禁用]" << std::endl;
+    } else {
+      std::cout << "\n🎯 目标跟踪阶段 [已禁用]" << std::endl;
+    }
   }
 
-  // 目标框筛选阶段
-  if (config_.enable_box_filter && box_filter_) {
-    std::cout << "\n📦 目标框筛选阶段 [启用]" << std::endl;
+  // 事件判定阶段
+  if (config_.enable_segmentation && config_.enable_event_determine && event_determine_) {
+    std::cout << "\n📦 事件判定阶段 [启用]" << std::endl;
     std::cout << "   输入队列: ["
-              << std::string(box_filter_->get_queue_size() > 0 ? "🟢" : "⚪")
-              << "] " << box_filter_->get_queue_size() << std::endl;
+              << std::string(event_determine_->get_queue_size() > 0 ? "🟢" : "⚪")
+              << "] " << event_determine_->get_queue_size() << std::endl;
     std::cout << "   输出队列: ["
-              << std::string(box_filter_->get_output_queue_size() > 0 ? "🟢"
+              << std::string(event_determine_->get_output_queue_size() > 0 ? "🟢"
                                                                       : "⚪")
-              << "] " << box_filter_->get_output_queue_size() << std::endl;
+              << "] " << event_determine_->get_output_queue_size() << std::endl;
   } else {
-    std::cout << "\n📦 目标框筛选阶段 [已禁用]" << std::endl;
+    if (!config_.enable_segmentation) {
+      std::cout << "\n📦 事件判定阶段 [已禁用 - 语义分割已禁用]" << std::endl;
+    } else {
+      std::cout << "\n📦 事件判定阶段 [已禁用]" << std::endl;
+    }
   }
 
   // 最终结果队列
@@ -262,8 +396,13 @@ void PipelineManager::print_status() const {
 
 void PipelineManager::print_thread_info() const {
   std::cout << "\n🧵 线程配置信息:" << std::endl;
-  std::cout << "   语义分割线程数: " << semantic_seg_->get_thread_count()
-            << std::endl;
+  
+  if (semantic_seg_) {
+    std::cout << "   语义分割线程数: " << semantic_seg_->get_thread_count()
+              << std::endl;
+  } else {
+    std::cout << "   语义分割线程数: 0 (已禁用)" << std::endl;
+  }
   
   if (mask_postprocess_) {
     std::cout << "   Mask后处理线程数: " << mask_postprocess_->get_thread_count()
@@ -286,8 +425,8 @@ void PipelineManager::print_thread_info() const {
     std::cout << "   目标跟踪线程数: 0 (已禁用)" << std::endl;
   }
   
-  if (box_filter_) {
-    std::cout << "   目标框筛选线程数: " << box_filter_->get_thread_count()
+  if (event_determine_) {
+    std::cout << "   事件判定线程数: " << event_determine_->get_thread_count()
               << std::endl;
   } else {
     std::cout << "   目标框筛选线程数: 0 (已禁用)" << std::endl;
@@ -295,11 +434,12 @@ void PipelineManager::print_thread_info() const {
   
   std::cout << "   协调器线程数: 4" << std::endl;
   
-  int total_threads = semantic_seg_->get_thread_count() + 4;
+  int total_threads = 4; // 协调器线程数
+  if (semantic_seg_) total_threads += semantic_seg_->get_thread_count();
   if (mask_postprocess_) total_threads += mask_postprocess_->get_thread_count();
   if (object_det_) total_threads += object_det_->get_thread_count();
   if (object_track_) total_threads += object_track_->get_thread_count();
-  if (box_filter_) total_threads += box_filter_->get_thread_count();
+  if (event_determine_) total_threads += event_determine_->get_thread_count();
   
   std::cout << "   总工作线程数: " << total_threads << std::endl;
 }
@@ -312,6 +452,12 @@ void PipelineManager::seg_to_mask_thread_func() {
     bool has_work = false;
     size_t processed = 0;
 
+    // 如果语义分割被禁用，此线程不需要处理任何事情
+    if (!config_.enable_segmentation || !semantic_seg_) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      continue;
+    }
+
     // 检查输出队列
     if (semantic_seg_->get_output_queue_size() > 0) {
       ImageDataPtr seg_result;
@@ -323,7 +469,7 @@ void PipelineManager::seg_to_mask_thread_func() {
           processed++;
           
           // 根据配置决定流转路径
-          if (config_.enable_mask_postprocess && mask_postprocess_) {
+          if (config_.enable_segmentation && config_.enable_mask_postprocess && mask_postprocess_) {
             // 启用Mask后处理：传递给Mask后处理模块
             mask_postprocess_->add_image(seg_result);
           } else {
@@ -339,16 +485,16 @@ void PipelineManager::seg_to_mask_thread_func() {
             // 这里我们需要手动调用下一阶段的逻辑
             if (config_.enable_detection && object_det_) {
               object_det_->add_image(seg_result);
-            } else if (config_.enable_tracking && object_track_) {
-              // 跳过检测，直接到跟踪
+            } else if (config_.enable_detection && config_.enable_tracking && object_track_) {
+              // 跳过检测，直接到跟踪（只有在检测启用时跟踪才可能启用）
               seg_result->detection_results.clear();
               if (seg_result->detection_promise && 
                   seg_result->detection_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
                 seg_result->detection_promise->set_value();
               }
               object_track_->add_image(seg_result);
-            } else if (config_.enable_box_filter && box_filter_) {
-              // 跳过检测和跟踪，直接到筛选
+            } else if (config_.enable_segmentation && config_.enable_event_determine && event_determine_) {
+              // 跳过检测和跟踪，直接到事件判定（只有在语义分割启用时event_determine才可能启用）
               seg_result->detection_results.clear();
               seg_result->track_results = seg_result->detection_results;
               if (seg_result->detection_promise && 
@@ -359,7 +505,7 @@ void PipelineManager::seg_to_mask_thread_func() {
                   seg_result->tracking_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
                 seg_result->tracking_promise->set_value();
               }
-              box_filter_->add_image(seg_result);
+              event_determine_->add_image(seg_result);
             } else {
               // 所有后续模块都禁用，直接到最终结果
               seg_result->detection_results.clear();
@@ -372,9 +518,9 @@ void PipelineManager::seg_to_mask_thread_func() {
                   seg_result->tracking_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
                 seg_result->tracking_promise->set_value();
               }
-              if (seg_result->box_filter_promise &&
-                  seg_result->box_filter_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
-                seg_result->box_filter_promise->set_value();
+              if (seg_result->event_determine_promise &&
+                  seg_result->event_determine_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+                seg_result->event_determine_promise->set_value();
               }
               final_results_.push(seg_result);
             }
@@ -399,7 +545,7 @@ void PipelineManager::mask_to_detect_thread_func() {
     bool has_work = false;
 
     // 根据配置决定数据来源
-    if (config_.enable_mask_postprocess && mask_postprocess_) {
+    if (config_.enable_segmentation && config_.enable_mask_postprocess && mask_postprocess_) {
       // 从mask后处理获取新的图像
       if (mask_postprocess_->get_output_queue_size() > 0) {
         ImageDataPtr mask_result;
@@ -421,16 +567,16 @@ void PipelineManager::mask_to_detect_thread_func() {
                 mask_result->detection_promise->set_value();
               }
               
-              if (config_.enable_tracking && object_track_) {
+              if (config_.enable_detection && config_.enable_tracking && object_track_) {
                 object_track_->add_image(mask_result);
-              } else if (config_.enable_box_filter && box_filter_) {
-                // 跳过跟踪，直接到筛选
+              } else if (config_.enable_segmentation && config_.enable_event_determine && event_determine_) {
+                // 跳过跟踪，直接到事件判定（只有在语义分割启用时event_determine才可能启用）
                 mask_result->track_results = mask_result->detection_results;
                 if (mask_result->tracking_promise &&
                     mask_result->tracking_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
                   mask_result->tracking_promise->set_value();
                 }
-                box_filter_->add_image(mask_result);
+                event_determine_->add_image(mask_result);
               } else {
                 // 所有后续模块都禁用，直接到最终结果
                 mask_result->track_results = mask_result->detection_results;
@@ -438,9 +584,9 @@ void PipelineManager::mask_to_detect_thread_func() {
                     mask_result->tracking_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
                   mask_result->tracking_promise->set_value();
                 }
-                if (mask_result->box_filter_promise &&
-                    mask_result->box_filter_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
-                  mask_result->box_filter_promise->set_value();
+                if (mask_result->event_determine_promise &&
+                    mask_result->event_determine_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+                  mask_result->event_determine_promise->set_value();
                 }
                 final_results_.push(mask_result);
               }
@@ -449,7 +595,18 @@ void PipelineManager::mask_to_detect_thread_func() {
         }
       }
     }
-    // 注意：如果Mask后处理被禁用，数据会在seg_to_mask_thread中直接处理
+    
+    // 处理直接来自目标检测的图像（当语义分割被禁用时）
+    if (!config_.enable_segmentation && config_.enable_detection && object_det_) {
+      // 从直接检测队列获取图像
+      ImageDataPtr direct_detection_result;
+      while (direct_detection_queue_.try_pop(direct_detection_result) && running_.load()) {
+        if (direct_detection_result) {
+          has_work = true;
+          pending_images.push_back(direct_detection_result); // 添加到待处理列表
+        }
+      }
+    }
 
     // 如果启用了检测模块，按顺序检查已完成的检测任务
     if (config_.enable_detection && object_det_) {
@@ -464,16 +621,16 @@ void PipelineManager::mask_to_detect_thread_func() {
             try {
               image->detection_future.get(); // 确保没有异常
               
-              if (config_.enable_tracking && object_track_) {
+              if (config_.enable_detection && config_.enable_tracking && object_track_) {
                 object_track_->add_image(image);
-              } else if (config_.enable_box_filter && box_filter_) {
-                // 跳过跟踪，直接到筛选
+              } else if (config_.enable_segmentation && config_.enable_event_determine && event_determine_) {
+                // 跳过跟踪，直接到事件判定（只有在语义分割启用时event_determine才可能启用）
                 image->track_results = image->detection_results;
                 if (image->tracking_promise &&
                     image->tracking_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
                   image->tracking_promise->set_value();
                 }
-                box_filter_->add_image(image);
+                event_determine_->add_image(image);
               } else {
                 // 跟踪和筛选都禁用，直接到最终结果
                 image->track_results = image->detection_results;
@@ -481,9 +638,9 @@ void PipelineManager::mask_to_detect_thread_func() {
                     image->tracking_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
                   image->tracking_promise->set_value();
                 }
-                if (image->box_filter_promise &&
-                    image->box_filter_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
-                  image->box_filter_promise->set_value();
+                if (image->event_determine_promise &&
+                    image->event_determine_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+                  image->event_determine_promise->set_value();
                 }
                 final_results_.push(image);
               }
@@ -513,12 +670,12 @@ void PipelineManager::mask_to_detect_thread_func() {
 }
 
 // 目标跟踪->目标框筛选的数据流转
-void PipelineManager::track_to_filter_thread_func() {
+void PipelineManager::track_to_event_thread_func() {
   while (running_.load()) {
     bool has_work = false;
 
     // 根据配置决定数据来源
-    if (config_.enable_tracking && object_track_) {
+    if (config_.enable_detection && config_.enable_tracking && object_track_) {
       // 从目标跟踪获取新的图像
       if (object_track_->get_output_queue_size() > 0) {
         ImageDataPtr track_result;
@@ -526,14 +683,16 @@ void PipelineManager::track_to_filter_thread_func() {
           if (track_result) {
             has_work = true;
             
-            if (config_.enable_box_filter && box_filter_) {
-              // 传递给目标框筛选
-              box_filter_->add_image(track_result);
+            if (config_.enable_segmentation && config_.enable_event_determine && event_determine_) {
+              // 传递给目标框筛选（只有在语义分割启用时box_filter才可能启用）
+              std::cout << "🔄 跟踪结果传递给事件判定，帧: " << track_result->frame_idx << std::endl;
+              event_determine_->add_image(track_result);
             } else {
               // 跳过筛选，直接到最终结果
-              if (track_result->box_filter_promise &&
-                  track_result->box_filter_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
-                track_result->box_filter_promise->set_value();
+              std::cout << "🔄 跟踪结果直接到最终结果，帧: " << track_result->frame_idx << std::endl;
+              if (track_result->event_determine_promise &&
+                  track_result->event_determine_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+                track_result->event_determine_promise->set_value();
               }
               final_results_.push(track_result);
             }
@@ -550,19 +709,19 @@ void PipelineManager::track_to_filter_thread_func() {
 }
 
 // 目标框筛选->最终结果的数据流转
-void PipelineManager::filter_to_final_thread_func() {
+void PipelineManager::event_to_final_thread_func() {
   uint64_t cleanup_counter = 0; // 清理计数器
   
   while (running_.load()) {
     bool has_work = false;
     size_t processed = 0;
 
-    // 检查box_filter_是否启用且存在
-    if (config_.enable_box_filter && box_filter_ && box_filter_->get_output_queue_size() > 0) {
+    // 检查box_filter_是否启用且存在（只有在语义分割启用时box_filter才可能启用）
+    if (config_.enable_segmentation && config_.enable_event_determine && event_determine_ && event_determine_->get_output_queue_size() > 0) {
       ImageDataPtr filter_result;
 
       // 批量处理数据
-      while (box_filter_->get_processed_image(filter_result) && running_.load()) {
+      while (event_determine_->get_processed_image(filter_result) && running_.load()) {
         if (filter_result) {
           has_work = true;
           processed++;
@@ -603,5 +762,5 @@ void PipelineManager::filter_to_final_thread_func() {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
   }
-  std::cout << "filter_to_final_thread 已退出" << std::endl;
+  std::cout << "event_to_final_thread 已退出" << std::endl;
 }

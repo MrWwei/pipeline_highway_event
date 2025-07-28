@@ -111,18 +111,41 @@ ProcessResult HighwayEventDetectorImpl::convert_to_process_result(ImageDataPtr i
         det_box.track_id = box.track_id;
         det_box.status = box.status;
         result.detections.push_back(det_box);
-        // cv::rectangle(image_src, 
-        //             cv::Point(box.left, box.top), 
-        //             cv::Point(box.right, box.bottom), 
-        //             cv::Scalar(0, 255, 0), 2);
-        // cv::putText(image_src, 
-        //           std::to_string(box.track_id), 
-        //           cv::Point(box.left, box.top - 5), 
-        //           cv::FONT_HERSHEY_SIMPLEX, 
-        //           0.5,
-        //           cv::Scalar(0, 255, 0), 1);
+        cv::rectangle(image_src, 
+                    cv::Point(box.left, box.top), 
+                    cv::Point(box.right, box.bottom), 
+                    cv::Scalar(0, 255, 0), 2);
+        cv::putText(image_src, 
+                  std::to_string(box.track_id), 
+                  cv::Point(box.left, box.top - 5), 
+                  cv::FONT_HERSHEY_SIMPLEX, 
+                  0.5,
+                  cv::Scalar(0, 255, 0), 1);
     }
-    // cv::imwrite("track_outs/output_" + std::to_string(result.frame_id) + ".jpg", image_src);
+    cv::imwrite("track_outs/output_" + std::to_string(result.frame_id) + ".jpg", image_src);
+    // for (const auto& box : image_data->detection_results) {
+    //     DetectionBox det_box;
+    //     det_box.left = box.left;
+    //     det_box.top = box.top;
+    //     det_box.right = box.right;
+    //     det_box.bottom = box.bottom;
+
+    //     det_box.confidence = box.confidence;
+    //     det_box.class_id = box.class_id;
+    //     det_box.track_id = box.track_id;
+    //     det_box.status = box.status;
+    //     cv::rectangle(image_src, 
+    //                 cv::Point(box.left, box.top), 
+    //                 cv::Point(box.right, box.bottom), 
+    //                 cv::Scalar(0, 255, 0), 2);
+    //     cv::putText(image_src, 
+    //               std::to_string(box.track_id), 
+    //               cv::Point(box.left, box.top - 5), 
+    //               cv::FONT_HERSHEY_SIMPLEX, 
+    //               0.5,
+    //               cv::Scalar(0, 255, 0), 1);
+    // }
+    // cv::imwrite("detect_outs/output_" + std::to_string(result.frame_id) + ".jpg", image_src);
     
     // 转换筛选结果
     result.has_filtered_box = image_data->has_filtered_box;
@@ -157,19 +180,22 @@ bool HighwayEventDetectorImpl::initialize(const HighwayEventConfig& config) {
         pipeline_config.mask_postprocess_threads = config.mask_threads;
         pipeline_config.detection_threads = config.detection_threads;
         pipeline_config.tracking_threads = config.tracking_threads;
-        pipeline_config.box_filter_threads = config.filter_threads;
+        pipeline_config.event_determine_threads = config.filter_threads;
         
         // 添加模块开关配置
+        pipeline_config.enable_segmentation = config.enable_segmentation;
         pipeline_config.enable_mask_postprocess = config.enable_mask_postprocess;
         pipeline_config.enable_detection = config.enable_detection;
         pipeline_config.enable_tracking = config.enable_tracking;
-        pipeline_config.enable_box_filter = config.enable_box_filter;
+        pipeline_config.enable_event_determine = config.enable_box_filter;
+        pipeline_config.enable_pedestrian_detect = config.enable_pedestrian_detect;
         
         pipeline_config.seg_model_path = config.seg_model_path;
+        pipeline_config.car_det_model_path = config.car_det_model_path;
+        pipeline_config.pedestrian_det_model_path = config.pedestrian_det_model_path;
         pipeline_config.enable_seg_show = config.enable_seg_show;
         pipeline_config.seg_show_image_path = config.seg_show_image_path;
         pipeline_config.det_algor_name = config.det_algor_name;
-        pipeline_config.det_model_path = config.det_model_path;
         pipeline_config.det_img_size = config.det_img_size;
         pipeline_config.det_conf_thresh = config.det_conf_thresh;
         pipeline_config.det_iou_thresh = config.det_iou_thresh;
@@ -179,8 +205,8 @@ bool HighwayEventDetectorImpl::initialize(const HighwayEventConfig& config) {
         pipeline_config.det_max_opt = config.det_max_opt;
         pipeline_config.det_is_ultralytics = config.det_is_ultralytics;
         pipeline_config.det_gpu_id = config.det_gpu_id;
-        pipeline_config.box_filter_top_fraction = config.box_filter_top_fraction;
-        pipeline_config.box_filter_bottom_fraction = config.box_filter_bottom_fraction;
+        pipeline_config.event_determine_top_fraction = config.box_filter_top_fraction;
+        pipeline_config.event_determine_bottom_fraction = config.box_filter_bottom_fraction;
         pipeline_config.final_result_queue_capacity = config.result_queue_capacity;
         pipeline_config.times_car_width = config.times_car_width; // 车宽倍数
         pipeline_config.enable_lane_show = config.enable_lane_show;
@@ -213,8 +239,8 @@ bool HighwayEventDetectorImpl::change_params(const HighwayEventConfig& config) {
     pipeline_config.seg_show_image_path = config.seg_show_image_path;
     pipeline_config.lane_show_image_path = config.lane_show_image_path;
     pipeline_config.times_car_width = config.times_car_width; // 车宽倍数
-    pipeline_config.box_filter_top_fraction = config.box_filter_top_fraction;
-    pipeline_config.box_filter_bottom_fraction = config.box_filter_bottom_fraction;
+    pipeline_config.event_determine_top_fraction = config.box_filter_top_fraction;
+    pipeline_config.event_determine_bottom_fraction = config.box_filter_bottom_fraction;
     pipeline_manager_->change_params(pipeline_config);
     
     // 这里可以添加更多的参数更新逻辑
@@ -270,6 +296,7 @@ int64_t HighwayEventDetectorImpl::add_frame(const cv::Mat& image) {
         // 创建图像数据（拷贝） - 使用异常安全的方式
         ImageDataPtr img_data = std::make_shared<ImageData>(image);
         img_data->frame_idx = frame_id;
+        img_data->roi = cv::Rect(0, 0, image.cols, image.rows); // 默认ROI为整个图像
         
         // 添加到流水线
         pipeline_manager_->add_image(img_data);
@@ -300,6 +327,7 @@ int64_t HighwayEventDetectorImpl::add_frame(cv::Mat&& image) {
         // 创建图像数据（移动） - 使用异常安全的方式
         ImageDataPtr img_data = std::make_shared<ImageData>(std::move(image));
         img_data->frame_idx = frame_id;
+        img_data->roi = cv::Rect(0, 0, img_data->width, img_data->height); // 设置默认ROI为整个图像
         
         // 添加到流水线
         pipeline_manager_->add_image(img_data);
