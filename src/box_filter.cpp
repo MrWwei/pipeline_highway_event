@@ -280,11 +280,8 @@ void
     if (!emergency_lane.is_valid) {
       return ObjectStatus::NORMAL;
     }
-
-    // 检查目标框的左下角和右下角点
-    PointT left_bottom(box.left, box.top);
-    PointT right_bottom(box.right, box.bottom);
-
+    // 检查目标框的中心点是否在应急车道区域内
+    PointT center((box.left + box.right) / 2, (box.top + box.bottom) / 2);
     // 判断点是否在应急车道区域内
     auto is_in_region = [](const std::vector<PointT> &region, const PointT &pt) {
       if (region.size() < 3)
@@ -297,8 +294,8 @@ void
       return cv::pointPolygonTest(contour, cv::Point2f(pt.x, pt.y), false) >= 0;
     };
 
-    if (is_in_region(emergency_lane.left_lane_region, left_bottom) ||
-        is_in_region(emergency_lane.right_lane_region, right_bottom)) {
+    if (is_in_region(emergency_lane.left_lane_region, center) ||
+        is_in_region(emergency_lane.right_lane_region, center)) {
       return ObjectStatus::OCCUPY_EMERGENCY_LANE;
     }
 
