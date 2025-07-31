@@ -9,6 +9,9 @@
 #include <fstream>
 #include <iomanip>
 #include <queue>
+#include <mutex>
+#include <condition_variable>
+#include <atomic>
 #include <sys/resource.h>
 
 class HighwayEventDemo {
@@ -28,10 +31,10 @@ public:
     }
     
     /**
-     * 视频文件批量处理测试 - 每32帧为一批
+     * 视频文件阻塞式处理测试 - 解码出帧直接添加到流水线，阻塞获取结果
      */
-    void test_video_batch_processing(const std::string& video_path) {
-        std::cout << "\n=== 🎬 视频批量处理测试 (每32帧一批) ===" << std::endl;
+    void test_video_stream_processing(const std::string& video_path) {
+        std::cout << "\n=== 🎬 视频阻塞式处理测试 (仅目标检测) ===" << std::endl;
         
         cv::VideoCapture cap(video_path);
         if (!cap.isOpened()) {
@@ -53,23 +56,27 @@ public:
         // 配置高性能参数
         HighwayEventConfig config;
         
-        config.semantic_threads = 6;
-        config.mask_threads = 6;
-        config.detection_threads = 6;
+        config.semantic_threads = 1;
+        config.mask_threads = 1;
+        config.detection_threads = 1;
         config.tracking_threads = 1;
-        config.filter_threads = 3;
-        config.result_queue_capacity = 50; // 适合批量处理的队列大小
+        config.filter_threads = 1;
+        config.result_queue_capacity = 50; // 适合流式处理的队列大小
         config.enable_debug_log = false;
-        config.enable_segmentation = true; // 关闭语义分割以提高速度
-        config.get_timeout_ms = 30000; // 增加超时时间适应批量处理
+        config.enable_segmentation = false; // 关闭语义分割
+        config.enable_mask_postprocess = true; // 关闭mask后处理
         config.enable_detection = true;
-        config.enable_tracking = true;
-        config.enable_box_filter = true;   // 语义分割关闭时，事件判定也必须关闭
-        config.enable_mask_postprocess = true; // 语义分割关闭时，mask后处理也必须关闭
+        config.enable_tracking = true; // 关闭目标跟踪模块
+        config.enable_event_determine = true;   // 关闭事件判定
+
+        config.enable_seg_show = false;
+        config.seg_show_image_path = "./segmentation_results/"; // 分割结果图像保存路径
+        config.get_timeout_ms = 100000; // 阻塞处理使用较长超时
+
         config.times_car_width = 2.2f; // 车宽倍数
-        config.enable_lane_show = false; // 语义分割关闭时，车道线可视化也关闭
+        config.enable_lane_show = false; // 关闭车道线可视化
         config.lane_show_image_path = "./lane_results/"; // 车道线结果
-        config.enable_pedestrian_detect = true;
+        config.enable_pedestrian_detect = false;
         
         
         if (!detector_->initialize(config) || !detector_->start()) {
@@ -78,161 +85,118 @@ public:
             return;
         }
         
-        // 批量处理参数
-        const int BATCH_SIZE = 32;
-        int total_frames_processed = 0;
-        int total_successful = 0;
-        int total_detections = 0;
-        int batch_number = 0;
+        // 流式处理参数
+        std::atomic<int> total_frames_processed{0};
+        std::atomic<int> total_successful{0};
+        std::atomic<int> total_detections{0};
+        std::atomic<int> frame_number{0};
+        std::atomic<bool> processing_finished{false};
+        
+        // 用于存储待处理的frame_id队列
+        std::queue<int64_t> pending_frame_ids;
+        std::mutex pending_mutex;
+        std::condition_variable pending_cv;
         
         auto process_start = std::chrono::high_resolution_clock::now();
-        size_t initial_memory = get_memory_usage_mb();
-        std::cout << "🧠 初始内存使用: " << initial_memory << " MB" << std::endl;
         
-        std::cout << "🎬 开始批量处理视频，每批 " << BATCH_SIZE << " 帧..." << std::endl;
-        
-        cv::Mat frame;
-        std::vector<cv::Mat> batch_frames;
-        std::vector<int64_t> batch_frame_ids;
-        
-        while (cap.read(frame) && !frame.empty()) {
-            batch_frames.push_back(frame.clone());
+        // 创建结果获取线程
+        std::thread result_thread([&]() {
+            std::cout << "🔄 结果获取线程启动" << std::endl;
             
-            // 当达到批量大小或者是最后的帧时，处理这一批
-            if (batch_frames.size() == BATCH_SIZE || 
-                total_frames_processed + batch_frames.size() >= frame_count) {
+            while (!processing_finished.load() || !pending_frame_ids.empty()) {
+                std::unique_lock<std::mutex> lock(pending_mutex);
                 
-                batch_number++;
-                int current_batch_size = batch_frames.size();
+                // 等待有frame_id可处理，或者处理完成
+                pending_cv.wait(lock, [&]() { 
+                    return !pending_frame_ids.empty() || processing_finished.load(); 
+                });
                 
-                std::cout << "\n📦 ========== 处理第 " << batch_number << " 批 ========== " << std::endl;
-                std::cout << "📊 批次信息: " << current_batch_size << " 帧 (总进度: " 
-                          << total_frames_processed << "/" << frame_count << ")" << std::endl;
-                
-                auto batch_start = std::chrono::high_resolution_clock::now();
-                
-                // 步骤1: 批量添加帧到流水线
-                std::cout << "📥 步骤1: 批量添加 " << current_batch_size << " 帧到流水线..." << std::endl;
-                batch_frame_ids.clear();
-                
-                for (int i = 0; i < current_batch_size; ++i) {
-                    int64_t frame_id = detector_->add_frame(std::move(batch_frames[i]));
-                    if (frame_id >= 0) {
-                        batch_frame_ids.push_back(frame_id);
-                        if ((i + 1) % 8 == 0 || i == current_batch_size - 1) {
-                            std::cout << "   已添加 " << (i + 1) << "/" << current_batch_size << " 帧" << std::endl;
-                        }
-                    } else {
-                        std::cout << "⚠️ 第 " << i << " 帧添加失败" << std::endl;
+                if (pending_frame_ids.empty()) {
+                    if (processing_finished.load()) {
+                        break;
                     }
+                    continue;
                 }
                 
-                auto add_end = std::chrono::high_resolution_clock::now();
-                auto add_duration = std::chrono::duration_cast<std::chrono::milliseconds>(add_end - batch_start);
-                std::cout << "✅ 添加完成，耗时: " << add_duration.count() << " ms，成功添加: " 
-                          << batch_frame_ids.size() << "/" << current_batch_size << " 帧" << std::endl;
+                // 取出一个frame_id
+                int64_t frame_id = pending_frame_ids.front();
+                pending_frame_ids.pop();
+                lock.unlock();
                 
-                // 步骤2: 等待所有帧处理完成并获取结果
-                std::cout << "🔄 步骤2: 等待批量处理完成并获取结果..." << std::endl;
-                int batch_successful = 0;
-                int batch_detections = 0;
+                // 阻塞方式获取结果
+                auto result = detector_->get_result_with_timeout(frame_id, config.get_timeout_ms);
+                // std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
                 
-                for (size_t i = 0; i < batch_frame_ids.size(); ++i) {
-                    auto result = detector_->get_result_with_timeout(batch_frame_ids[i], 30000);
+                if (result.status == ResultStatus::SUCCESS) {
                     
-                    if (result.status == ResultStatus::SUCCESS) {
-                        batch_successful++;
-                        batch_detections += result.detections.size();
-                        
-                        if ((i + 1) % 8 == 0 || i == batch_frame_ids.size() - 1) {
-                            std::cout << "   已获取 " << (i + 1) << "/" << batch_frame_ids.size() 
-                                      << " 个结果 (成功: " << batch_successful << ")" << std::endl;
-                        }
-                    } else if (result.status == ResultStatus::TIMEOUT) {
-                        std::cout << "⏰ 帧 " << batch_frame_ids[i] << " 处理超时" << std::endl;
-                    } else {
-                        std::cout << "❌ 帧 " << batch_frame_ids[i] << " 处理失败" << std::endl;
-                    }
-                }
-                
-                auto batch_end = std::chrono::high_resolution_clock::now();
-                auto batch_duration = std::chrono::duration_cast<std::chrono::milliseconds>(batch_end - batch_start);
-                auto process_duration = std::chrono::duration_cast<std::chrono::milliseconds>(batch_end - add_end);
-                
-                // 更新统计信息
-                total_frames_processed += current_batch_size;
-                total_successful += batch_successful;
-                total_detections += batch_detections;
-                
-                // 获取当前内存使用
-                size_t current_memory = get_memory_usage_mb();
-                
-                // 输出批次统计
-                std::cout << "📊 批次 " << batch_number << " 统计:" << std::endl;
-                std::cout << "   处理帧数: " << current_batch_size << std::endl;
-                std::cout << "   成功帧数: " << batch_successful << std::endl;
-                std::cout << "   成功率: " << (batch_successful * 100.0 / current_batch_size) << "%" << std::endl;
-                std::cout << "   检测目标数: " << batch_detections << std::endl;
-                std::cout << "   平均检测数: " << (batch_successful > 0 ? batch_detections / (double)batch_successful : 0) << " 个/帧" << std::endl;
-                std::cout << "⏱️  批次耗时:" << std::endl;
-                std::cout << "   总耗时: " << batch_duration.count() << " ms" << std::endl;
-                std::cout << "   添加耗时: " << add_duration.count() << " ms" << std::endl;
-                std::cout << "   处理耗时: " << process_duration.count() << " ms" << std::endl;
-                std::cout << "   平均处理时间: " << (process_duration.count() / current_batch_size) << " ms/帧" << std::endl;
-                std::cout << "🧠 内存使用: " << current_memory << " MB (增长: " 
-                          << (current_memory - initial_memory) << " MB)" << std::endl;
-                
-                // 清空当前批次的帧数据
-                batch_frames.clear();
-                
-                // 输出累计统计
-                double overall_progress = (total_frames_processed * 100.0) / frame_count;
-                auto current_time = std::chrono::high_resolution_clock::now();
-                auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(current_time - process_start);
-                
-                std::cout << "📈 累计统计:" << std::endl;
-                std::cout << "   总进度: " << std::fixed << std::setprecision(1) << overall_progress << "% "
-                          << "(" << total_frames_processed << "/" << frame_count << ")" << std::endl;
-                std::cout << "   总成功率: " << (total_successful * 100.0 / total_frames_processed) << "%" << std::endl;
-                std::cout << "   总运行时间: " << elapsed.count() << " 秒" << std::endl;
-                std::cout << "   平均处理速度: " << (total_frames_processed / (double)elapsed.count()) << " 帧/秒" << std::endl;
-                std::cout << "   检测目标总数: " << total_detections << std::endl;
-                
-                std::cout << "\n📊 实时流水线状态监控:" << std::endl;
-                detector_->get_pipeline_status(); // 这会调用 print_status() 进行实时监控
-                
-                // 短暂休息，让系统稳定
-                if (total_frames_processed < frame_count) {
-                    std::cout << "\n😴 批次间休息 2 秒..." << std::endl;
-                    std::this_thread::sleep_for(std::chrono::seconds(2));
+                    total_successful.fetch_add(1);
+                    total_detections.fetch_add(result.detections.size());
+                } else {
+                    std::cout << "❌ 帧 " << frame_id << " 处理失败或超时" << std::endl;
+                    std::cout << "   状态: " << static_cast<int>(result.status) << std::endl;
                 }
             }
+            
+            std::cout << "🔄 结果获取线程结束" << std::endl;
+        });
+        
+        cv::Mat frame;
+        auto last_status_time = std::chrono::high_resolution_clock::now();
+        
+        while (cap.read(frame) && !frame.empty()) {
+            frame_number.fetch_add(1);
+            
+            // 添加帧到流水线
+            int64_t frame_id = detector_->add_frame(frame.clone());
+            if (frame_id >= 0) {
+                total_frames_processed.fetch_add(1);
+                
+                // 将frame_id添加到待处理队列
+                {
+                    std::lock_guard<std::mutex> lock(pending_mutex);
+                    pending_frame_ids.push(frame_id);
+                }
+                pending_cv.notify_one();
+                
+               
+            }
+            
+            // 每隔一定时间显示状态
+            // auto current_time = std::chrono::high_resolution_clock::now();
+            // if (std::chrono::duration_cast<std::chrono::seconds>(current_time - last_status_time).count() >= 2) {
+            //     std::cout << "\n📊 流水线实时状态 (第 " << frame_number.load() << " 帧):" << std::endl;
+                detector_->get_pipeline_status(); // 显示流水线各模块的队列状态
+            //     std::cout << "📈 处理进度: 已提交 " << total_frames_processed.load() 
+            //               << " 帧，已完成 " << total_successful.load() << " 帧" << std::endl;
+            //     last_status_time = current_time;
+            // }
         }
         
+        // 标记处理完成，通知结果线程
+        processing_finished.store(true);
+        pending_cv.notify_all();
+        
+        // 等待结果线程完成
+        std::cout << "⏳ 等待所有结果处理完成..." << std::endl;
+        if (result_thread.joinable()) {
+            result_thread.join();
+        }
+        
+        // 等待所有剩余帧处理完成
         auto process_end = std::chrono::high_resolution_clock::now();
         auto total_duration = std::chrono::duration_cast<std::chrono::milliseconds>(process_end - process_start);
-        size_t final_memory = get_memory_usage_mb();
         
-        std::cout << "\n🎉 ========== 视频批量处理完成 ==========" << std::endl;
-        std::cout << "📊 最终统计:" << std::endl;
-        std::cout << "   视频总帧数: " << frame_count << std::endl;
-        std::cout << "   处理帧数: " << total_frames_processed << std::endl;
-        std::cout << "   成功帧数: " << total_successful << std::endl;
-        std::cout << "   总成功率: " << (total_successful * 100.0 / total_frames_processed) << "%" << std::endl;
-        std::cout << "   批次数量: " << batch_number << std::endl;
-        std::cout << "   平均批次大小: " << (total_frames_processed / (double)batch_number) << " 帧" << std::endl;
-        std::cout << "⏱️  时间统计:" << std::endl;
-        std::cout << "   总处理时间: " << total_duration.count() << " ms (" << (total_duration.count() / 1000.0) << " 秒)" << std::endl;
-        std::cout << "   平均处理时间: " << (total_duration.count() / total_frames_processed) << " ms/帧" << std::endl;
-        std::cout << "   实际吞吐量: " << (total_frames_processed * 1000.0 / total_duration.count()) << " 帧/秒" << std::endl;
-        std::cout << "   相对原视频速度: " << (total_frames_processed * 1000.0 / total_duration.count() / fps) << "x" << std::endl;
-        std::cout << "🎯 检测统计:" << std::endl;
-        std::cout << "   检测目标总数: " << total_detections << std::endl;
-        std::cout << "   平均检测数: " << (total_successful > 0 ? total_detections / (double)total_successful : 0) << " 个/帧" << std::endl;
-        std::cout << "🧠 内存统计:" << std::endl;
-        std::cout << "   初始内存: " << initial_memory << " MB" << std::endl;
-        std::cout << "   最终内存: " << final_memory << " MB" << std::endl;
-        std::cout << "   内存增长: " << (final_memory - initial_memory) << " MB" << std::endl;
+        // 显示最终统计信息
+        std::cout << "\n📊 最终处理统计:" << std::endl;
+        std::cout << "   总处理时间: " << total_duration.count() << " ms" << std::endl;
+        std::cout << "   已提交帧数: " << total_frames_processed.load() << std::endl;
+        std::cout << "   成功处理帧数: " << total_successful.load() << std::endl;
+        std::cout << "   总检测目标数: " << total_detections.load() << std::endl;
+        if (total_successful.load() > 0) {
+            std::cout << "   平均每帧检测目标: " << (double)total_detections.load() / total_successful.load() << std::endl;
+            std::cout << "   处理成功率: " << (double)total_successful.load() / total_frames_processed.load() * 100 << "%" << std::endl;
+        }
         
         cap.release();
         detector_->stop();
@@ -242,15 +206,15 @@ public:
 void print_usage() {
     std::cout << "用法: ./highway_event_demo video [视频文件路径]" << std::endl;
     std::cout << "\n功能说明:" << std::endl;
-    std::cout << "  此程序对视频文件进行批量处理，每32帧为一批" << std::endl;
-    std::cout << "  等待每批处理完成后再进行下一批，确保内存稳定" << std::endl;
+    std::cout << "  此程序对视频文件进行阻塞式处理，仅使用目标检测模块" << std::endl;
+    std::cout << "  关闭目标跟踪模块，检测结果直接送到结果队列" << std::endl;
     std::cout << "\n示例:" << std::endl;
     std::cout << "  ./highway_event_demo video /path/to/video.mp4" << std::endl;
     std::cout << "  ./highway_event_demo video /home/ubuntu/Desktop/test_video.mp4" << std::endl;
 }
 
 int main(int argc, char* argv[]) {
-    std::cout << "🚗 高速公路事件检测系统 - 视频批量处理程序" << std::endl;
+    std::cout << "🚗 高速公路事件检测系统 - 阻塞式目标检测程序" << std::endl;
     std::cout << "================================================\n" << std::endl;
     
     if (argc < 2) {
@@ -268,16 +232,16 @@ int main(int argc, char* argv[]) {
                 print_usage();
                 return 1;
             }
-            demo.test_video_batch_processing(argv[2]);
+            demo.test_video_stream_processing(argv[2]);
         }
         else {
             std::cerr << "❌ 未知的测试类型: " << test_type << std::endl;
-            std::cerr << "💡 当前版本只支持视频批量处理" << std::endl;
+            std::cerr << "💡 当前版本只支持阻塞式目标检测处理" << std::endl;
             print_usage();
             return 1;
         }
         
-        std::cout << "\n🎉 视频批量处理完成!" << std::endl;
+        std::cout << "\n🎉 阻塞式目标检测处理完成!" << std::endl;
         
     } catch (const std::exception& e) {
         std::cerr << "❌ 处理过程中发生异常: " << e.what() << std::endl;

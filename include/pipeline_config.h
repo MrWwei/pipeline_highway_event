@@ -5,7 +5,7 @@ struct PipelineConfig {
     // 线程配置
     int semantic_threads = 2;              // 语义分割线程数
     int mask_postprocess_threads = 1;      // Mask后处理线程数
-    int detection_threads = 2;             // 目标检测线程数
+    int detection_threads = 5;             // 目标检测线程数
     int tracking_threads = 1;              // 目标跟踪线程数
     int event_determine_threads = 1;       // 事件判定线程数
     

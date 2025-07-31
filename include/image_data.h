@@ -1,10 +1,10 @@
 #pragma once
 
-#include <future>
 #include <memory>
 #include <opencv2/opencv.hpp>
 #include <string>
 #include <vector>
+#include <mutex>
 #include "event_type.h"
 
 /**
@@ -13,6 +13,7 @@
 struct ImageData {
   cv::Mat imageMat;
   cv::Mat segInResizeMat;
+  cv::Mat parkingResizeMat; // 用于车辆违停检测的缩放图像
   int width;
   int height;
   int channels;
@@ -22,13 +23,7 @@ struct ImageData {
   int mask_height;
   int mask_width;
   std::vector<uint8_t> label_map;
-  std::shared_ptr<std::promise<void>> segmentation_promise;
-  std::shared_future<void> segmentation_future;
   cv::Mat mask; // 用于存储Mask后处理的结果 resize后的mask 1024x1024
-
-  // Mask后处理结果
-  std::shared_ptr<std::promise<void>> mask_postprocess_promise;
-  std::shared_future<void> mask_postprocess_future;
 
   // 裁剪后的ROI
   cv::Rect roi;
@@ -39,38 +34,32 @@ struct ImageData {
     float confidence;
     int class_id;
     int track_id;
+    bool is_still; // 是否为静止状态
     ObjectStatus status; // 目标状态
   };
   std::vector<BoundingBox> detection_results;
   std::vector<BoundingBox> track_results;
-  std::shared_ptr<std::promise<void>> detection_promise;
-  std::shared_future<void> detection_future;
-
+  
   // 目标框筛选结果
   BoundingBox filtered_box;  // 筛选出的宽度最小的目标框
   bool has_filtered_box;     // 是否有筛选结果
-  std::shared_ptr<std::promise<void>> event_determine_promise;
-  std::shared_future<void> event_determine_future;
 
-  // 目标跟踪阶段的同步原语
-  std::shared_ptr<std::promise<void>> tracking_promise;
-  std::shared_future<void> tracking_future;
+  // 线程安全保护（用于跟踪结果的访问）
+  std::mutex track_results_mutex;
 
-  // 默认构造函数
+  // 处理完成标志（替代promise/future机制）
+  bool segmentation_completed;
+  bool mask_postprocess_completed;
+  bool detection_completed;
+  bool track_completed; // 跟踪是否完成
+  
+
+    // 默认构造函数
   ImageData()
       : width(0), height(0),
         channels(0), frame_idx(0), mask_height(0), mask_width(0), 
-        has_filtered_box(false) {
-    segmentation_promise = std::make_shared<std::promise<void>>();
-    segmentation_future = segmentation_promise->get_future();
-    mask_postprocess_promise = std::make_shared<std::promise<void>>();
-    mask_postprocess_future = mask_postprocess_promise->get_future();
-    detection_promise = std::make_shared<std::promise<void>>();
-    detection_future = detection_promise->get_future();
-    event_determine_promise = std::make_shared<std::promise<void>>();
-    event_determine_future = event_determine_promise->get_future();
-    tracking_promise = std::make_shared<std::promise<void>>();
-    tracking_future = tracking_promise->get_future();
+        has_filtered_box(false),
+        segmentation_completed(false), mask_postprocess_completed(false), detection_completed(false) {
   }
 
   // 带图像的构造函数

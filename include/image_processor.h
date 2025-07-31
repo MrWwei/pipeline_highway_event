@@ -27,6 +27,12 @@ public:
   ImageProcessor(int num_threads = 1,
                  const std::string &name = "ImageProcessor");
 
+protected:
+  // 受保护的构造函数，允许派生类自定义队列大小
+  ImageProcessor(int num_threads, const std::string &name, 
+                 size_t input_queue_size, size_t output_queue_size);
+
+public:
   // 虚析构函数，确保派生类正确销毁
   virtual ~ImageProcessor();
 
@@ -58,8 +64,8 @@ public:
 
 
 protected:
-  // 工作线程函数 - 调用派生类的具体处理方法
-  void worker_thread_func(int thread_id);
+  // 工作线程函数 - 调用派生类的具体处理方法（可被重写）
+  virtual void worker_thread_func(int thread_id);
 
   // 纯虚函数：具体的图像处理算法，由派生类实现
   virtual void process_image(ImageDataPtr image, int thread_id) = 0;

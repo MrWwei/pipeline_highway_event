@@ -14,6 +14,20 @@ ImageProcessor::ImageProcessor(int num_threads, const std::string &name)
             << "模块初始化完成 (线程数: " << num_threads_ << ")" << std::endl;
 }
 
+// 受保护的构造函数，允许派生类自定义队列大小
+ImageProcessor::ImageProcessor(int num_threads, const std::string &name, 
+                               size_t input_queue_size, size_t output_queue_size)
+    : running_(false), num_threads_(num_threads), processor_name_(name),
+      input_queue_(input_queue_size), output_queue_(output_queue_size) {
+  if (num_threads_ <= 0) {
+    num_threads_ = 1;
+  }
+  std::cout << "🔍 " << processor_name_
+            << "模块初始化完成 (线程数: " << num_threads_ 
+            << ", 输入队列: " << input_queue_size 
+            << ", 输出队列: " << output_queue_size << ")" << std::endl;
+}
+
 ImageProcessor::~ImageProcessor() { stop(); }
 
 void ImageProcessor::start() {
@@ -83,18 +97,13 @@ void ImageProcessor::add_image(ImageDataPtr image) {
     std::cerr << "❌ " << processor_name_ << ": 尝试添加空图像指针" << std::endl;
     return;
   }
-
-  // 检查队列容量
-  // size_t current_size = input_queue_.size();
-  // if (current_size >= 90) { // 90% 容量警告
-  //   std::cout << "⚠️ " << processor_name_
-  //             << " 输入队列接近满容量: " << current_size << "/100" << std::endl;
-  // }
   input_queue_.push(image);
 }
 
 bool ImageProcessor::get_processed_image(ImageDataPtr &image) {
   if (output_queue_.empty()) {
+    // std::cout << "🔄 " << processor_name_
+    //           << " 目标检测输出队列为空，等待处理结果..." << std::endl;
     return false;
   }
   output_queue_.wait_and_pop(image);
@@ -112,6 +121,9 @@ std::string ImageProcessor::get_processor_name() const {
   return processor_name_;
 }
 
+/**
+ * 工作线程函数，负责从输入队列中获取图像并进行处理
+ */
 void ImageProcessor::worker_thread_func(int thread_id) {
   std::cout << "🔄 " << processor_name_ << "工作线程 " << thread_id << " 启动"
             << std::endl;
@@ -131,7 +143,6 @@ void ImageProcessor::worker_thread_func(int thread_id) {
     }
     
     on_processing_start(image, thread_id);
-
     // 执行具体的图像处理算法
     process_image(image, thread_id);
 
@@ -139,7 +150,4 @@ void ImageProcessor::worker_thread_func(int thread_id) {
     on_processing_complete(image, thread_id);
     output_queue_.push(image);
   }
-  
-  std::cout << "🔄 " << processor_name_ << "工作线程 " << thread_id << " 退出"
-            << std::endl;
 }

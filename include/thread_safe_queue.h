@@ -2,6 +2,7 @@
 #include <condition_variable>
 #include <mutex>
 #include <queue>
+#include <atomic>
 
 template <typename T> class ThreadSafeQueue {
 private:

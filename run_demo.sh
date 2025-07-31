@@ -53,4 +53,4 @@ $THIRD_PARTY/TensorRT-8.5.1.7/lib:\
 /home/ubuntu/wtwei/FastDeploy-release-1.1.0/build/compiled_fastdeploy_sdk/third_libs/install/paddle_inference/paddle/lib:\
 $LD_LIBRARY_PATH
 cd ..
-./build/HighwayEventDemo video /home/ubuntu/Desktop/DJI_20250501091406_0001.mp4
+./build/HighwayEventDemo video /home/ubuntu/Desktop/DJI_20250704170646_0001_V_cut.mp4

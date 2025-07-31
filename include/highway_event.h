@@ -55,7 +55,7 @@ struct HighwayEventConfig {
     bool enable_mask_postprocess = true;                   // 启用Mask后处理模块
     bool enable_detection = true;                           // 启用目标检测模块
     bool enable_tracking = true;                            // 启用目标跟踪模块
-    bool enable_box_filter = true;                          // 启用目标框筛选模块
+    bool enable_event_determine = true;                          // 启用目标框筛选模块
 
     bool enable_pedestrian_detect = false;                  // 是否启用行人检测
     

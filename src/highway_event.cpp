@@ -43,7 +43,9 @@ private:
     // 结果管理
     mutable std::mutex result_mutex_;
     mutable std::condition_variable result_cv_;
+    mutable std::condition_variable result_space_cv_; // 新增：用于等待结果缓存有空间
     std::unordered_map<uint64_t, ImageDataPtr> completed_results_;
+    static constexpr size_t MAX_COMPLETED_RESULTS = 100; // 最大结果缓存数量
     
     // 内部结果处理线程
     std::thread result_thread_;
@@ -72,15 +74,28 @@ void HighwayEventDetectorImpl::result_processing_thread() {
         // 从流水线获取完成的结果
         if (pipeline_manager_->get_final_result(result)) {
             {
-                std::lock_guard<std::mutex> lock(result_mutex_);
+                std::unique_lock<std::mutex> lock(result_mutex_);
+                
+                // 等待直到有空间存储新结果（阻塞机制）
+                result_space_cv_.wait(lock, [this]() {
+                    return completed_results_.size() < MAX_COMPLETED_RESULTS || !result_thread_running_.load();
+                });
+                
+                // 如果线程已停止，退出
+                if (!result_thread_running_.load()) {
+                    break;
+                }
+                
+                // 存储结果
                 completed_results_[result->frame_idx] = result;
                 
                 if (config_.enable_debug_log) {
                     std::cout << "✅ 结果处理完成，帧ID: " << result->frame_idx 
-                              << "，当前缓存数量: " << completed_results_.size() << std::endl;
+                              << "，当前缓存数量: " << completed_results_.size() 
+                              << "/" << MAX_COMPLETED_RESULTS << std::endl;
                 }
             }
-            result_cv_.notify_all();
+            result_cv_.notify_all(); // 通知等待结果的线程
         } else {
             // 没有结果，短暂休眠
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -96,6 +111,10 @@ ProcessResult HighwayEventDetectorImpl::convert_to_process_result(ImageDataPtr i
     // result.srcImage = image_data->imageMat->clone(); // 保留源图像
     // result.mask = image_data->mask.clone();
     cv::Mat image_src = image_data->imageMat;
+    // if(!image_data->mask.empty()) {
+    //     cv::Mat mask = image_data->mask.clone();
+    //     cv::imwrite("mask_outs/output_" + std::to_string(result.frame_id) + ".jpg", mask);
+    // }
     
     // 转换检测结果
     result.detections.reserve(image_data->track_results.size());
@@ -111,18 +130,19 @@ ProcessResult HighwayEventDetectorImpl::convert_to_process_result(ImageDataPtr i
         det_box.track_id = box.track_id;
         det_box.status = box.status;
         result.detections.push_back(det_box);
-        cv::rectangle(image_src, 
-                    cv::Point(box.left, box.top), 
-                    cv::Point(box.right, box.bottom), 
-                    cv::Scalar(0, 255, 0), 2);
-        cv::putText(image_src, 
-                  std::to_string(box.track_id), 
-                  cv::Point(box.left, box.top - 5), 
-                  cv::FONT_HERSHEY_SIMPLEX, 
-                  0.5,
-                  cv::Scalar(0, 255, 0), 1);
+        // cv::Scalar color = box.is_still ? cv::Scalar(0, 0, 255) : cv::Scalar(0, 255, 0);
+        // cv::rectangle(image_src, 
+        //             cv::Point(box.left, box.top), 
+        //             cv::Point(box.right, box.bottom), 
+        //             color);
+        // cv::putText(image_src, 
+        //           std::to_string(box.track_id), 
+        //           cv::Point(box.left, box.top - 5), 
+        //           cv::FONT_HERSHEY_SIMPLEX, 
+        //           0.5,
+        //           color, 1);
     }
-    cv::imwrite("track_outs/output_" + std::to_string(result.frame_id) + ".jpg", image_src);
+    // cv::imwrite("track_outs/output_" + std::to_string(result.frame_id) + ".jpg", image_src);
     // for (const auto& box : image_data->detection_results) {
     //     DetectionBox det_box;
     //     det_box.left = box.left;
@@ -187,7 +207,7 @@ bool HighwayEventDetectorImpl::initialize(const HighwayEventConfig& config) {
         pipeline_config.enable_mask_postprocess = config.enable_mask_postprocess;
         pipeline_config.enable_detection = config.enable_detection;
         pipeline_config.enable_tracking = config.enable_tracking;
-        pipeline_config.enable_event_determine = config.enable_box_filter;
+        pipeline_config.enable_event_determine = config.enable_event_determine;
         pipeline_config.enable_pedestrian_detect = config.enable_pedestrian_detect;
         
         pipeline_config.seg_model_path = config.seg_model_path;
@@ -211,6 +231,7 @@ bool HighwayEventDetectorImpl::initialize(const HighwayEventConfig& config) {
         pipeline_config.times_car_width = config.times_car_width; // 车宽倍数
         pipeline_config.enable_lane_show = config.enable_lane_show;
         pipeline_config.lane_show_image_path = config.lane_show_image_path;
+
         
         // 创建流水线管理器（但不启动）
         pipeline_manager_ = std::make_unique<PipelineManager>(pipeline_config);
@@ -352,21 +373,17 @@ ProcessResult HighwayEventDetectorImpl::get_result_with_timeout(uint64_t frame_i
         result.status = ResultStatus::ERROR;
         return result;
     }
-    
-    // if (config_.enable_debug_log) {
-    //     std::cout << "🔍 开始等待帧 " << frame_id << " 的结果，超时: " << timeout_ms << "ms" << std::endl;
-    // }
-    
     std::unique_lock<std::mutex> lock(result_mutex_);
     
     // 先检查结果是否已经存在
     auto it = completed_results_.find(frame_id);
     if (it != completed_results_.end()) {
-        // if (config_.enable_debug_log) {
-        //     std::cout << "✅ 帧 " << frame_id << " 结果已存在，直接返回" << std::endl;
-        // }
         result = convert_to_process_result(it->second);
         completed_results_.erase(it);
+        
+        // 通知结果处理线程有空间了
+        result_space_cv_.notify_one();
+
         return result;
     }
     
@@ -393,6 +410,9 @@ ProcessResult HighwayEventDetectorImpl::get_result_with_timeout(uint64_t frame_i
         result = convert_to_process_result(it->second);
         // 获取后删除结果，避免内存积累
         completed_results_.erase(it);
+        
+        // 通知结果处理线程有空间了
+        result_space_cv_.notify_one();
     } else {
         if (config_.enable_debug_log) {
             std::cout << "❌ 帧 " << frame_id << " 等待结束后未找到结果" << std::endl;
@@ -410,6 +430,14 @@ void HighwayEventDetectorImpl::stop() {
         // 停止结果处理线程
         if (result_thread_running_.load()) {
             result_thread_running_.store(false);
+            
+            // 唤醒可能阻塞的结果处理线程
+            {
+                std::lock_guard<std::mutex> lock(result_mutex_);
+                result_space_cv_.notify_all();
+                result_cv_.notify_all();
+            }
+            
             if (result_thread_.joinable()) {
                 result_thread_.join();
             }
@@ -453,7 +481,7 @@ std::string HighwayEventDetectorImpl::get_pipeline_status() const {
     oss << "下一帧ID: " << next_frame_id_.load();
     
     std::lock_guard<std::mutex> lock(result_mutex_);
-    oss << ", 缓存结果数量: " << completed_results_.size() << " 帧";
+    oss << ", 结果缓存: " << completed_results_.size() << "/" << MAX_COMPLETED_RESULTS << " 帧";
     
     return oss.str();
 }

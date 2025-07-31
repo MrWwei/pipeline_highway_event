@@ -32,29 +32,30 @@ private:
   std::unique_ptr<EventDetermine> event_determine_;
 
   std::atomic<bool> running_;
+  
+  // 输入缓冲队列和管理线程
+  ThreadSafeQueue<ImageDataPtr> input_buffer_queue_; // 流水线输入缓冲队列
+  std::thread input_feeder_thread_;                   // 输入馈送线程
+  
   // 各阶段的协调线程
   std::thread seg_to_mask_thread_;         // 语义分割->Mask后处理
-  std::thread mask_to_detect_thread_;      // Mask后处理->目标检测（直接到目标跟踪）
+  std::thread mask_to_detect_thread_;      // Mask后处理->目标检测
+  std::thread detect_to_track_thread_;     // 目标检测->目标跟踪
   std::thread track_to_event_thread_;      // 目标跟踪->事件判定
   std::thread event_to_final_thread_;      // 事件判定->最终结果
 
   ThreadSafeQueue<ImageDataPtr> final_results_; // 最终结果队列
-  std::map<uint64_t, ImageDataPtr> pending_results_; // 用于暂存未按序的结果
-  std::mutex pending_results_mutex_;
-  uint64_t next_frame_idx_; // 下一个应该输出的帧序号
-
-  // 用于跟踪直接送到目标检测的图像（当语义分割被禁用时）
-  ThreadSafeQueue<ImageDataPtr> direct_detection_queue_;
 
 private:
+  // 输入馈送线程函数
+  void input_feeder_thread_func();        // 从输入缓冲队列向第一个模块馈送数据
+  
   // 各阶段的处理函数
   void seg_to_mask_thread_func();         // 处理语义分割到Mask后处理的数据流转
-  void mask_to_detect_thread_func();      // 处理Mask后处理到目标检测并直接流转到目标跟踪
+  void mask_to_detect_thread_func();      // 处理Mask后处理到目标检测的数据流转
+  void detect_to_track_thread_func();     // 处理目标检测到目标跟踪的数据流转
   void track_to_event_thread_func();      // 处理目标跟踪到事件判定的数据流转
   void event_to_final_thread_func();      // 处理事件判定到最终结果的数据流转
-  
-  // 辅助函数：处理跳过检测阶段的图像
-  void handle_image_without_detection(const ImageDataPtr &img_data);
 
 public:
   // 构造函数，使用配置结构体
@@ -78,25 +79,7 @@ public:
 
   // 获取线程配置信息
   void print_thread_info() const;
-public:
-  void change_params(const PipelineConfig& config) {
-    config_ = config;
-    
-    // 更新各个模块的配置
-    if (semantic_seg_) {
-      semantic_seg_->change_params(config);
-    }
-    if (mask_postprocess_) {
-      mask_postprocess_->change_params(config);
-    }
-    if (object_det_) {
-      object_det_->change_params(config);
-    }
-    if (object_track_) {
-      object_track_->change_params(config);
-    }
-    if (event_determine_) {
-      event_determine_->change_params(config);
-    }
-  }
+  
+  // 更新流水线配置参数
+  void change_params(const PipelineConfig& config);
 };

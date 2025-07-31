@@ -37,14 +37,15 @@ add_library(road_seg_interface SHARED IMPORTED)
 set_target_properties( road_seg_interface PROPERTIES IMPORTED_LOCATION /home/ubuntu/wtwei/highway_event/road_seg_sdk/build/libroad_seg_sdk_V1.0.so )
 include_directories(/home/ubuntu/wtwei/highway_event/road_seg_sdk)
 
+add_library(vehicle_parking SHARED IMPORTED)
+set_target_properties( vehicle_parking PROPERTIES IMPORTED_LOCATION /home/ubuntu/wtwei/vehicle_parking/build/libvehicle_parking_detect_V1.0.so )
+include_directories(/home/ubuntu/wtwei/vehicle_parking/include)
 # Include directories
 include_directories(include)
 
 # Source files
 set(SOURCES
-    # src/main.cpp
     src/highway_event.cpp
-
     src/image_processor.cpp
     src/process_mask.cu
     src/semantic_segmentation.cpp
@@ -60,55 +61,22 @@ aux_source_directory(${PROJECT_SOURCE_DIR}/src SRC_DIR)
 file(GLOB_RECURSE cuda_srcs ${PROJECT_SOURCE_DIR}/src/process_mask.cu  )
 
 
-# Headers
-set(HEADERS
-    include/image_processor.h
-    include/semantic_segmentation.h
-    include/mask_postprocess.h
-    include/object_detection.h
-    include/event_determine.h
-    include/pipeline_manager.h
-    include/image_data.h
-    include/thread_safe_queue.h
-    include/process_mask.h
-    include/highway_event.h
-)
-
-# add_library(test_so SHARED  ${SRC_DIR} ${cuda_srcs})
-# target_link_libraries(test_so 
-#     Threads::Threads 
-#     detect_lib
-#     track_lib
-#     road_seg_interface
-#     # ${FASTDEPLOY_LIBS}
-#     opencv_world
-#     nvinfer
-#     nvinfer_plugin
-#     cudnn
-#     cuda          
-#     cudart    
-#     cublas    
-#     cublasLt  
-#     curand    
-#     cusolver  
-#     cusparse  
-#     cufft  
-# )
 set(sdk_target_name highway_event_sdk_v1.0)
 add_library(${sdk_target_name} SHARED ${SOURCES})
 target_link_libraries(${sdk_target_name}
     /home/ubuntu/wtwei/FastDeploy-release-1.1.0/build/compiled_fastdeploy_sdk/lib/libfastdeploy.so
-/home/ubuntu/wtwei/FastDeploy-release-1.1.0/build/compiled_fastdeploy_sdk/third_libs/install/onnxruntime/lib/libonnxruntime.so
-/home/ubuntu/wtwei/FastDeploy-release-1.1.0/build/compiled_fastdeploy_sdk/third_libs/install/paddle_inference/paddle/lib/libpaddle_inference.so
-/home/ubuntu/wtwei/FastDeploy-release-1.1.0/build/compiled_fastdeploy_sdk/third_libs/install/paddle_inference/third_party/install/mkldnn/lib/libmkldnn.so.0
-/home/ubuntu/wtwei/FastDeploy-release-1.1.0/build/compiled_fastdeploy_sdk/third_libs/install/paddle_inference/third_party/install/mklml/lib/libiomp5.so
-/home/ubuntu/wtwei/FastDeploy-release-1.1.0/build/compiled_fastdeploy_sdk/third_libs/install/openvino/runtime/lib/libopenvino.so
+    /home/ubuntu/wtwei/FastDeploy-release-1.1.0/build/compiled_fastdeploy_sdk/third_libs/install/onnxruntime/lib/libonnxruntime.so
+    /home/ubuntu/wtwei/FastDeploy-release-1.1.0/build/compiled_fastdeploy_sdk/third_libs/install/paddle_inference/paddle/lib/libpaddle_inference.so
+    /home/ubuntu/wtwei/FastDeploy-release-1.1.0/build/compiled_fastdeploy_sdk/third_libs/install/paddle_inference/third_party/install/mkldnn/lib/libmkldnn.so.0
+    /home/ubuntu/wtwei/FastDeploy-release-1.1.0/build/compiled_fastdeploy_sdk/third_libs/install/paddle_inference/third_party/install/mklml/lib/libiomp5.so
+    /home/ubuntu/wtwei/FastDeploy-release-1.1.0/build/compiled_fastdeploy_sdk/third_libs/install/openvino/runtime/lib/libopenvino.so
     /home/ubuntu/wtwei/FastDeploy-release-1.1.0/build/compiled_fastdeploy_sdk/third_libs/install/paddle2onnx/lib/libpaddle2onnx.so
 
     Threads::Threads 
     detect_lib
     track_lib
     road_seg_interface
+    vehicle_parking
     # ${FASTDEPLOY_LIBS}
     opencv_world
     nvinfer
@@ -133,26 +101,8 @@ include_directories(${CMAKE_SOURCE_DIR}/jni)
 add_library(${jni_target_name} SHARED ${CMAKE_SOURCE_DIR}/jni/cn_xtkj_jni_algor_HighwayAlgors.cpp )
 target_link_libraries(${jni_target_name} ${sdk_target_name}) 
 
-# Create main executable
-# add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS} )
 
-# Create demo executable
-set(DEMO_SOURCES
-    highway_event_demo.cpp
-    src/image_processor.cpp
-    src/process_mask.cu
-    src/semantic_segmentation.cpp
-    src/mask_postprocess.cpp
-    src/object_detection.cpp
-    src/object_tracking.cpp
-    src/event_determine.cpp
-    src/pipeline_manager.cpp
-    src/image_data.cpp
-    src/event_utils.cc
-    src/highway_event.cpp
-)
-
-add_executable(HighwayEventDemo ${DEMO_SOURCES} ${HEADERS})
+add_executable(HighwayEventDemo highway_event_demo.cpp)
 
 # # Link libraries for main executable
 # target_link_libraries(${PROJECT_NAME} Threads::Threads 
@@ -176,14 +126,7 @@ add_executable(HighwayEventDemo ${DEMO_SOURCES} ${HEADERS})
 
 # # Link libraries for demo executable
 target_link_libraries(HighwayEventDemo Threads::Threads 
-    detect_lib
-    track_lib
-    road_seg_interface
-    ${FASTDEPLOY_LIBS}
-    ${OpenCV_LIBS}
-    nvinfer
-    nvinfer_plugin
-    cudnn
+    ${sdk_target_name}
      cuda          
   cudart    
   cublas    
@@ -193,10 +136,3 @@ target_link_libraries(HighwayEventDemo Threads::Threads
   cusparse  
   cufft  
 )
-
-# Compiler flags
-# target_compile_options(${PROJECT_NAME} PRIVATE
-#     # -Wall
-#     # -Wextra
-#     -O2
-# )

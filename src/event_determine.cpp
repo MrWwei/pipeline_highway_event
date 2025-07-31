@@ -1,7 +1,6 @@
 #include "event_determine.h"
 #include "pipeline_manager.h"
 #include <chrono>
-#include <future>
 #include <iostream>
 #include <limits>
 
@@ -66,26 +65,9 @@ void EventDetermine::on_processing_complete(ImageDataPtr image, int thread_id) {
 }
 
 void EventDetermine::perform_event_determination(ImageDataPtr image, int thread_id) {
-  auto start_time = std::chrono::high_resolution_clock::now();
   
   if (image->detection_results.empty()) {
-    // 去除无目标框的输出
-    // std::cout << "⚠️ 图像 " << image->frame_idx << " 没有检测到目标框" << std::endl;
     image->has_filtered_box = false;
-    // 设置promise完成 - 先检查是否已经设置
-    try {
-      if (image->event_determine_promise && 
-          image->event_determine_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
-        image->event_determine_promise->set_value();
-      }
-    } catch (const std::future_error& e) {
-      // std::cout << "⚠️ Promise已被设置，帧 " << image->frame_idx << ": " << e.what() << std::endl;
-    }
-    auto end_time = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-        end_time - start_time);
-    // 去除筛选完成输出
-    // std::cout << "✅ 事件判定完成 (无目标)，耗时: " << duration.count() << "ms" << std::endl;
     return;
   }
   
@@ -94,16 +76,11 @@ void EventDetermine::perform_event_determination(ImageDataPtr image, int thread_
   int region_top = image_height * top_fraction_;
   int region_bottom = image_height * bottom_fraction_;
   
-  // std::cout << "🎯 筛选区域: [" << region_top << ", " << region_bottom 
-  //           << "] (图像高度: " << image_height << ")" << std::endl;
-  
   // 首先在指定区域内寻找宽度最小的目标框
   ImageData::BoundingBox* min_width_box = find_min_width_box_in_region(
       image->detection_results, region_top, region_bottom);
   
   if (min_width_box == nullptr) {
-    // 指定区域内没有目标框，在全图范围内寻找
-    // std::cout << "⚠️ 指定区域内没有目标框，扩展到全图搜索" << std::endl;
     min_width_box = find_min_width_box_in_region(
         image->detection_results, 0, image_height);
   }
@@ -182,20 +159,6 @@ void EventDetermine::perform_event_determination(ImageDataPtr image, int thread_
     // std::cout << "⚠️ 全图范围内都没有找到目标框" << std::endl;
   }
   
-  // 设置promise完成 - 先检查是否已经设置
-  try {
-    if (image->event_determine_promise && 
-        image->event_determine_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
-      image->event_determine_promise->set_value();
-    }
-  } catch (const std::future_error& e) {
-    // std::cout << "⚠️ Promise已被设置，帧 " << image->frame_idx << ": " << e.what() << std::endl;
-  }
-  
-  auto end_time = std::chrono::high_resolution_clock::now();
-  auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-      end_time - start_time);
-  // std::cout << "✅ 事件判定完成，耗时: " << duration.count() << "ms" << std::endl;
 }
 
 int EventDetermine::calculate_box_width(const ImageData::BoundingBox& box) const {
