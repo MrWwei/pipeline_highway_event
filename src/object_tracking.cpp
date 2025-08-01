@@ -40,13 +40,7 @@ void ObjectTracking::process_image(ImageDataPtr image, int thread_id) {
     std::cerr << "⚠️ [目标跟踪] 收到空图像指针" << std::endl;
     return;
   }
-  // auto start_time = std::chrono::high_resolution_clock::now();
-  perform_tracking(image); // 130ms
-
-  // auto end_time = std::chrono::high_resolution_clock::now();
-  // auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-  // std::cout << "✅ [目标跟踪] 帧 " << image->frame_idx << " 跟踪完成，耗时: "
-  //           << duration.count() << "ms" << std::endl;
+  perform_tracking(image);
 
 }
 

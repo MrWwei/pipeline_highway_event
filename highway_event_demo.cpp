@@ -63,11 +63,11 @@ public:
         config.filter_threads = 1;
         config.result_queue_capacity = 50; // 适合流式处理的队列大小
         config.enable_debug_log = false;
-        config.enable_segmentation = false; // 关闭语义分割
+        config.enable_segmentation = true; // 关闭语义分割
         config.enable_mask_postprocess = true; // 关闭mask后处理
         config.enable_detection = true;
-        config.enable_tracking = true; // 关闭目标跟踪模块
-        config.enable_event_determine = true;   // 关闭事件判定
+        config.enable_tracking = false; // 关闭目标跟踪模块
+        config.enable_event_determine = false;   // 关闭事件判定
 
         config.enable_seg_show = false;
         config.seg_show_image_path = "./segmentation_results/"; // 分割结果图像保存路径

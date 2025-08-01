@@ -7,13 +7,14 @@ struct DetectionBox {
     int class_id;                          // 类别ID
     int track_id;                          // 跟踪ID
     ObjectStatus status;                   // 目标状态
+    bool is_still;                     // 是否为静止状态
     
     DetectionBox() : left(0), top(0), right(0), bottom(0), 
                     confidence(0.0f), class_id(0), track_id(0), 
-                    status(ObjectStatus::UNKNOWN) {}
+                    status(ObjectStatus::UNKNOWN), is_still(false) {}
     DetectionBox(int l, int t, int r, int b, float conf, int cls = 0, int tid = 0, ObjectStatus stat = ObjectStatus::UNKNOWN)
         : left(l), top(t), right(r), bottom(b), confidence(conf),
-          class_id(cls), track_id(tid), status(stat) {}
+          class_id(cls), track_id(tid), status(stat), is_still(false) {}
     bool is_valid() const {
         return left < right && top < bottom && confidence > 0.0f;
     }

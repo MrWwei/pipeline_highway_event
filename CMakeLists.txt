@@ -64,25 +64,24 @@ file(GLOB_RECURSE cuda_srcs ${PROJECT_SOURCE_DIR}/src/process_mask.cu  )
 set(sdk_target_name highway_event_sdk_v1.0)
 add_library(${sdk_target_name} SHARED ${SOURCES})
 target_link_libraries(${sdk_target_name}
-    /home/ubuntu/wtwei/FastDeploy-release-1.1.0/build/compiled_fastdeploy_sdk/lib/libfastdeploy.so
-    /home/ubuntu/wtwei/FastDeploy-release-1.1.0/build/compiled_fastdeploy_sdk/third_libs/install/onnxruntime/lib/libonnxruntime.so
-    /home/ubuntu/wtwei/FastDeploy-release-1.1.0/build/compiled_fastdeploy_sdk/third_libs/install/paddle_inference/paddle/lib/libpaddle_inference.so
-    /home/ubuntu/wtwei/FastDeploy-release-1.1.0/build/compiled_fastdeploy_sdk/third_libs/install/paddle_inference/third_party/install/mkldnn/lib/libmkldnn.so.0
-    /home/ubuntu/wtwei/FastDeploy-release-1.1.0/build/compiled_fastdeploy_sdk/third_libs/install/paddle_inference/third_party/install/mklml/lib/libiomp5.so
-    /home/ubuntu/wtwei/FastDeploy-release-1.1.0/build/compiled_fastdeploy_sdk/third_libs/install/openvino/runtime/lib/libopenvino.so
-    /home/ubuntu/wtwei/FastDeploy-release-1.1.0/build/compiled_fastdeploy_sdk/third_libs/install/paddle2onnx/lib/libpaddle2onnx.so
+    ${FASTDEPLOY_INSTALL_DIR}/lib/libfastdeploy.so
+    ${FASTDEPLOY_INSTALL_DIR}/third_libs/install/onnxruntime/lib/libonnxruntime.so
+    ${FASTDEPLOY_INSTALL_DIR}/third_libs/install/paddle_inference/paddle/lib/libpaddle_inference.so
+    ${FASTDEPLOY_INSTALL_DIR}/third_libs/install/paddle_inference/third_party/install/mkldnn/lib/libmkldnn.so.0
+    ${FASTDEPLOY_INSTALL_DIR}/third_libs/install/paddle_inference/third_party/install/mklml/lib/libiomp5.so
+    ${FASTDEPLOY_INSTALL_DIR}/third_libs/install/openvino/runtime/lib/libopenvino.so
+    ${FASTDEPLOY_INSTALL_DIR}/third_libs/install/paddle2onnx/lib/libpaddle2onnx.so
 
     Threads::Threads 
     detect_lib
     track_lib
     road_seg_interface
     vehicle_parking
-    # ${FASTDEPLOY_LIBS}
     opencv_world
     nvinfer
     nvinfer_plugin
     cudnn
-     cuda          
+    cuda          
    cudart    
    cublas    
    cublasLt  
@@ -104,35 +103,6 @@ target_link_libraries(${jni_target_name} ${sdk_target_name})
 
 add_executable(HighwayEventDemo highway_event_demo.cpp)
 
-# # Link libraries for main executable
-# target_link_libraries(${PROJECT_NAME} Threads::Threads 
-#     detect_lib
-#     track_lib
-#     road_seg_interface
-#     ${FASTDEPLOY_LIBS}
-#     ${OpenCV_LIBS}
-#     nvinfer
-#     nvinfer_plugin
-#     cudnn
-#      cuda          
-#   cudart    
-#   cublas    
-#   cublasLt  
-#   curand    
-#   cusolver  
-#   cusparse  
-#   cufft  
-# )
-
-# # Link libraries for demo executable
 target_link_libraries(HighwayEventDemo Threads::Threads 
     ${sdk_target_name}
-     cuda          
-  cudart    
-  cublas    
-  cublasLt  
-  curand    
-  cusolver  
-  cusparse  
-  cufft  
 )

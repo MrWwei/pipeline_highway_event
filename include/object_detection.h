@@ -4,6 +4,9 @@
 #include "image_processor.h"
 #include "thread_safe_queue.h"
 #include <string>
+#include <mutex>
+#include <opencv2/cudaimgproc.hpp>
+#include <opencv2/cudawarping.hpp>
 
 // 前向声明
 struct PipelineConfig;
@@ -28,5 +31,11 @@ private:
   
   // 执行目标检测算法
   void perform_object_detection(ImageDataPtr image, int thread_id);
+  
+  // CUDA优化相关
+  mutable std::mutex gpu_mutex_; // GPU操作互斥锁
+  cv::cuda::GpuMat gpu_src_cache_; // GPU源图像缓存
+  cv::cuda::GpuMat gpu_dst_cache_; // GPU目标图像缓存
+  bool cuda_available_ = true; // CUDA是否可用
   
 };

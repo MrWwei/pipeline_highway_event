@@ -108,7 +108,6 @@ ProcessResult HighwayEventDetectorImpl::convert_to_process_result(ImageDataPtr i
     result.status = ResultStatus::SUCCESS;
     result.frame_id = image_data->frame_idx;
     result.roi = image_data->roi;
-    // result.srcImage = image_data->imageMat->clone(); // 保留源图像
     // result.mask = image_data->mask.clone();
     cv::Mat image_src = image_data->imageMat;
     // if(!image_data->mask.empty()) {
@@ -129,6 +128,18 @@ ProcessResult HighwayEventDetectorImpl::convert_to_process_result(ImageDataPtr i
         det_box.class_id = box.class_id;
         det_box.track_id = box.track_id;
         det_box.status = box.status;
+        det_box.is_still = box.is_still; // 添加静止状态
+        if(det_box.is_still) {
+            if(det_box.status == ObjectStatus::NORMAL)
+            det_box.status = ObjectStatus::PARKING_LANE; // 静止状态且正常状态视为违停
+            else if(det_box.status == ObjectStatus::OCCUPY_EMERGENCY_LANE) {
+                det_box.status = ObjectStatus::PARKING_EMERGENCY_LANE; // 非静止状态的违停视为占用应急车道
+            }
+            else {
+            det_box.status = ObjectStatus::PARKING_LANE; // 非静止状态且非违停视为正常状态
+            }
+        }
+    
         result.detections.push_back(det_box);
         // cv::Scalar color = box.is_still ? cv::Scalar(0, 0, 255) : cv::Scalar(0, 255, 0);
         // cv::rectangle(image_src, 

@@ -14,6 +14,15 @@ EventDetermine::EventDetermine(int num_threads, const PipelineConfig* config)
     times_car_width_ = config->times_car_width; // 车宽倍数
     enable_lane_show_ = config->enable_lane_show;
     lane_show_image_path_ = config->lane_show_image_path;
+    
+    // 打印配置信息
+    std::cout << "🔧 事件判定模块配置: " 
+              << "上边界比例: " << top_fraction_ 
+              << ", 下边界比例: " << bottom_fraction_ 
+              << ", 车宽倍数: " << times_car_width_ 
+              << ", 车道线可视化: " << (enable_lane_show_ ? "启用" : "禁用") 
+              << ", 车道线结果路径: " << lane_show_image_path_ 
+              << std::endl;
   } else {
     // 默认配置
     top_fraction_ = 4.0f / 7.0f;

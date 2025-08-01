@@ -8,16 +8,17 @@ package cn.xtkj.jni.algor;
  */
 public class HighwayAlgorParam {
 
-    // 功能开关参数
+   // 功能开关参数
+    private boolean enableSegment = true; // 是否启用分割
+    private boolean enableParkingDetection = true; // 是否启用违停检测
+
     private boolean enableEmergencyLaneDetection = true; // 是否启用应急车道检测
     private boolean enableLicensePlateRecognition = true; // 是否启用车牌识别
     private boolean enablePersonDetection = true;        // 是否启用行人检测
     private boolean enableLaneShow = false;              // 是否启用车道线可视化
     private boolean enableSegShow = false;               // 是否启用分割可视化（如车道线分割）
 
-
     // 违停检测参数
-    private boolean enableParkingDetection = true; // 是否启用违停检测
     private int staticThreshold = 5;               // 禁止阈值
     private int minStaticDuration = 2;             // 最小运动持续帧数
 
@@ -59,6 +60,14 @@ public class HighwayAlgorParam {
 
     public void setEnableLaneShow(boolean enableLaneShow) {
         this.enableLaneShow = enableLaneShow;
+    }
+
+    public boolean getEnableSegment() {
+        return enableSegment;
+    }
+
+    public void setEnableSegment(boolean enableSegment) {
+        this.enableSegment = enableSegment;
     }
 
     public boolean getEnableParkingDetection() {

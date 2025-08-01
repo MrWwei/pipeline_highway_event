@@ -239,7 +239,7 @@ void PipelineManager::input_feeder_thread_func() {
         event_determine_->add_image(img_data);
       } else {
         // 跳过所有处理，直接到最终结果
-        img_data->roi = cv::Rect(0, 0, img_data->width, img_data->height);
+        // img_data->roi = cv::Rect(0, 0, img_data->width, img_data->height);
         img_data->detection_results.clear();
         img_data->track_results.clear();
         final_results_.push(img_data);

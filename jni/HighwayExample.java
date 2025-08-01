@@ -99,4 +99,32 @@ public class HighwayExample {
     public void setGpuId(int gpuId) {
         this.gpuId = gpuId;
     }
+    
+    public static void main(String[] args) {
+        System.out.println("🧪 测试 HighwayAlgorParam 参数配置");
+        
+        // 创建参数对象
+        HighwayAlgorParam param = new HighwayAlgorParam();
+        
+        // 测试新添加的参数
+        System.out.println("📋 默认参数值:");
+        System.out.println("  enableSegment: " + param.getEnableSegment());
+        System.out.println("  enableParkingDetection: " + param.getEnableParkingDetection());
+        System.out.println("  enableEmergencyLaneDetection: " + param.getEnableEmergencyLaneDetection());
+        System.out.println("  enableSegShow: " + param.getEnableSegShow());
+        System.out.println("  enableLaneShow: " + param.getEnableLaneShow());
+        
+        // 修改参数值
+        param.setEnableSegment(false);
+        param.setEnableParkingDetection(false);
+        param.setEnableSegShow(true);
+        param.setSegShowImagePathString("./test_seg_results/");
+        
+        System.out.println("\n🔧 修改后的参数值:");
+        System.out.println("  enableSegment: " + param.getEnableSegment());
+        System.out.println("  enableParkingDetection: " + param.getEnableParkingDetection());
+        System.out.println("  segShowImagePathString: " + param.getSegShowImagePathString());
+        
+        System.out.println("\n✅ 参数配置测试完成");
+    }
 }

@@ -6,6 +6,9 @@
 #include <future>
 #include <string>
 #include <mutex>
+#include <opencv2/cudaimgproc.hpp>
+#include <opencv2/cudawarping.hpp>
+#include <atomic>
 
 // 前向声明
 struct PipelineConfig;
@@ -61,6 +64,17 @@ private:
   int seg_show_interval_ = 200; // 分割结果保存间隔（帧数）
   
   // 批量处理相关
-  static constexpr int BATCH_SIZE = 16; // 批量处理大小
+  static constexpr int BATCH_SIZE = 32; // 批量处理大小
+  
+  // CUDA优化相关
+  mutable std::mutex gpu_mutex_; // GPU操作互斥锁
+  cv::cuda::GpuMat gpu_src_cache_; // GPU源图像缓存
+  cv::cuda::GpuMat gpu_dst_cache_; // GPU目标图像缓存
+  bool cuda_available_ = true; // CUDA是否可用
+  
+  // 性能统计相关
+  std::atomic<uint64_t> total_processed_images_{0}; // 总处理图像数
+  std::atomic<uint64_t> total_batch_count_{0};      // 总批次数
+  std::atomic<uint64_t> total_processing_time_ms_{0}; // 总处理时间（毫秒）
   
 };

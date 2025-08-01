@@ -84,6 +84,8 @@ HighwayEventConfig get_config_from_param(JNIEnv* env, jobject param) {
     }
     
     // 获取功能开关参数
+    jfieldID enableSegmentField = env->GetFieldID(paramClass, "enableSegment", "Z");
+    jfieldID enableParkingDetectionField = env->GetFieldID(paramClass, "enableParkingDetection", "Z");
     jfieldID enableEmergencyField = env->GetFieldID(paramClass, "enableEmergencyLaneDetection", "Z");
     jfieldID enableSegShowField = env->GetFieldID(paramClass, "enableSegShow", "Z");
     jfieldID enableLaneShowField = env->GetFieldID(paramClass, "enableLaneShow", "Z");
@@ -91,6 +93,16 @@ HighwayEventConfig get_config_from_param(JNIEnv* env, jobject param) {
     if (check_and_clear_exception(env, "get_config_from_param - GetFieldID for switches")) {
         env->DeleteLocalRef(paramClass);
         return config;
+    }
+    
+    // 获取语义分割开关
+    if (enableSegmentField) {
+        config.enable_segmentation = env->GetBooleanField(param, enableSegmentField);
+    }
+    
+    // 获取违停检测开关
+    if (enableParkingDetectionField) {
+        config.enable_parking_detection = env->GetBooleanField(param, enableParkingDetectionField);
     }
     
     if (enableSegShowField) {
@@ -132,11 +144,11 @@ HighwayEventConfig get_config_from_param(JNIEnv* env, jobject param) {
     }
     
     // 设置默认线程配置（可以根据需要调整）
-    config.semantic_threads = 4;
-    config.mask_threads = 4;
-    config.detection_threads = 4;
+    config.semantic_threads = 1;
+    config.mask_threads = 1;
+    config.detection_threads = 1;
     config.tracking_threads = 1;
-    config.filter_threads = 2;
+    config.filter_threads = 1;
     config.enable_debug_log = true;
     
     env->DeleteLocalRef(paramClass);
@@ -146,11 +158,23 @@ HighwayEventConfig get_config_from_param(JNIEnv* env, jobject param) {
 // 辅助函数：获取事件类型ID
 int get_event_type_id(ObjectStatus status) {
     switch (status) {
-        case ObjectStatus::OCCUPY_EMERGENCY_LANE:
-            return 3; // OCCUPY_EMERGENCY_LANE
         case ObjectStatus::NORMAL:
-        default:
             return 0; // 无事件
+        case ObjectStatus::PARKING_LANE:
+            return 1; // 违停
+        case ObjectStatus::PARKING_EMERGENCY_LANE:
+            return 2; // 应急车道停车
+        case ObjectStatus::OCCUPY_EMERGENCY_LANE:
+            return 3; // 占用应急车道
+        case ObjectStatus::WALK_HIGHWAY:
+            return 4; // 高速行人
+        case ObjectStatus::HIGHWAY_JAM:
+            return 5; // 高速拥堵
+        case ObjectStatus::TRAFFIC_ACCIDENT:
+            return 6; // 交通事故
+        case ObjectStatus::UNKNOWN:
+        default:
+            return -1; // 未知事件
     }
 }
 
@@ -256,6 +280,9 @@ jobject create_event_yolo_coor(JNIEnv* env, const DetectionBox& box) {
     if (eventIdField) {
         int eventId = get_event_type_id(box.status);
         env->SetIntField(coorObj, eventIdField, eventId);
+        
+    } else {
+        std::cerr << "❌ [JNI] 无法找到EventYoloCoor的eventId字段" << std::endl;
     }
     
     env->DeleteLocalRef(integerClass);

@@ -4,6 +4,8 @@
 #include <iostream>
 #include <random>
 #include <thread>
+#include <opencv2/cudaimgproc.hpp>
+#include <opencv2/cudawarping.hpp>
 const int det_batch_size = 8;
 ObjectDetection::ObjectDetection(int num_threads, const PipelineConfig* config)
     : ImageProcessor(num_threads, "目标检测"), config_(*config) { // 使用传入的线程数
@@ -52,6 +54,24 @@ ObjectDetection::ObjectDetection(int num_threads, const PipelineConfig* config)
   } else {
     personal_detect_instance_ = nullptr;
   }
+  
+  // 初始化CUDA状态
+  try {
+    if (cv::cuda::getCudaEnabledDeviceCount() > 0) {
+      // 预分配GPU内存以提高性能
+      gpu_src_cache_.create(1080, 1920, CV_8UC3); // 假设最大输入尺寸
+      gpu_dst_cache_.create(1080, 1920, CV_8UC3); // 输出尺寸（resize后可能变化）
+      cuda_available_ = true;
+      std::cout << "✅ CUDA已启用，目标检测resize将使用GPU加速" << std::endl;
+    } else {
+      cuda_available_ = false;
+      std::cout << "⚠️ 未检测到CUDA设备，目标检测resize将使用CPU" << std::endl;
+    }
+  } catch (const cv::Exception& e) {
+    cuda_available_ = false;
+    std::cerr << "⚠️ CUDA初始化失败: " << e.what() << "，目标检测resize将使用CPU" << std::endl;
+  }
+  
   // std::cout << "🔍 目标检测模块初始化完成（正常模式）" << std::endl;
 }
 
@@ -87,7 +107,6 @@ void ObjectDetection::process_image(ImageDataPtr image, int thread_id) {
     detect_result_group_t* car_outs[] = {&car_out};
     
     car_detect_instance_->forward(mats, car_outs);
-    // std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     
     // 处理车辆检测结果 (class_id保持原值，通常是0)
     if (car_out.count > 0) {
@@ -136,9 +155,48 @@ void ObjectDetection::on_processing_start(ImageDataPtr image, int thread_id) {
   // std::cout << "🎯 目标检测准备开始 (线程 " << thread_id << ")" << std::endl;
   int max_dim = std::max(image->width, image->height);
   if (max_dim > 1920) {
-    // 如果图像尺寸超过1080p，缩小到1080p
+    // 如果图像尺寸超过1080p，使用CUDA缩小到1080p
     double scale = 1920.0 / max_dim;
-    cv::resize(image->imageMat, image->parkingResizeMat, cv::Size(), scale, scale, cv::INTER_LINEAR);
+    cv::Size new_size(static_cast<int>(image->width * scale), 
+                      static_cast<int>(image->height * scale));
+    
+    if (cuda_available_) {
+      try {
+        std::lock_guard<std::mutex> lock(gpu_mutex_); // 保护GPU操作
+        
+        // 检查是否需要调整缓存大小
+        if (gpu_src_cache_.rows < image->imageMat.rows || 
+            gpu_src_cache_.cols < image->imageMat.cols) {
+          gpu_src_cache_.create(image->imageMat.rows, image->imageMat.cols, CV_8UC3);
+        }
+        
+        // 检查输出缓存大小
+        if (gpu_dst_cache_.rows < new_size.height || 
+            gpu_dst_cache_.cols < new_size.width) {
+          gpu_dst_cache_.create(new_size.height, new_size.width, CV_8UC3);
+        }
+        
+        // 上传到GPU
+        cv::cuda::GpuMat gpu_src_roi = gpu_src_cache_(cv::Rect(0, 0, image->imageMat.cols, image->imageMat.rows));
+        gpu_src_roi.upload(image->imageMat);
+        
+        // 在GPU上进行resize操作
+        cv::cuda::GpuMat gpu_dst_roi = gpu_dst_cache_(cv::Rect(0, 0, new_size.width, new_size.height));
+        cv::cuda::resize(gpu_src_roi, gpu_dst_roi, new_size, 0, 0, cv::INTER_LINEAR);
+        
+        // 下载回CPU
+        gpu_dst_roi.download(image->parkingResizeMat);
+        
+      } catch (const cv::Exception& e) {
+        // 如果CUDA操作失败，标记CUDA不可用并回退到CPU实现
+        std::cerr << "⚠️ CUDA resize失败，禁用CUDA并回退到CPU: " << e.what() << std::endl;
+        cuda_available_ = false;
+        cv::resize(image->imageMat, image->parkingResizeMat, new_size, 0, 0, cv::INTER_LINEAR);
+      }
+    } else {
+      // 使用CPU实现
+      cv::resize(image->imageMat, image->parkingResizeMat, new_size, 0, 0, cv::INTER_LINEAR);
+    }
   } else {
     // 否则保持原尺寸
     image->parkingResizeMat = image->imageMat.clone();

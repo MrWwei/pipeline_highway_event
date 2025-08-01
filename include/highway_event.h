@@ -18,9 +18,9 @@
  */
 struct HighwayEventConfig {
     // === 线程配置 ===
-    int semantic_threads = 2;              // 语义分割线程数
+    int semantic_threads = 1;              // 语义分割线程数
     int mask_threads = 1;                  // Mask后处理线程数
-    int detection_threads = 2;             // 目标检测线程数
+    int detection_threads = 1;             // 目标检测线程数
     int tracking_threads = 1;              // 目标跟踪线程数
     int filter_threads = 1;                // 目标框筛选线程数
     
@@ -56,6 +56,7 @@ struct HighwayEventConfig {
     bool enable_detection = true;                           // 启用目标检测模块
     bool enable_tracking = true;                            // 启用目标跟踪模块
     bool enable_event_determine = true;                          // 启用目标框筛选模块
+    bool enable_parking_detection = true;                  // 启用违停检测模块
 
     bool enable_pedestrian_detect = false;                  // 是否启用行人检测
     
