@@ -101,13 +101,7 @@ void ImageProcessor::add_image(ImageDataPtr image) {
 }
 
 bool ImageProcessor::get_processed_image(ImageDataPtr &image) {
-  if (output_queue_.empty()) {
-    // std::cout << "🔄 " << processor_name_
-    //           << " 目标检测输出队列为空，等待处理结果..." << std::endl;
-    return false;
-  }
-  output_queue_.wait_and_pop(image);
-  return true;
+  return output_queue_.wait_and_pop(image);
 }
 
 size_t ImageProcessor::get_queue_size() const { return input_queue_.size(); }

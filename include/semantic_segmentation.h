@@ -1,7 +1,8 @@
 #pragma once
 
 #include "image_processor.h"
-#include "road_seg.h"
+// #include "road_seg.h"
+#include "trt_seg_model.h"
 #include "event_utils.h"
 #include <future>
 #include <string>
@@ -57,7 +58,7 @@ private:
   void segmentation_worker();
 
   std::unique_ptr<ThreadSafeQueue<ImageDataPtr>> segmentation_queue_;
-  IRoadSeg *road_seg_instance_; // 支持多线程的SDK实例列表
+  std::unique_ptr<PureTRTPPSeg> road_seg_instance_; // 支持多线程的SDK实例列表
 
   bool enable_seg_show_; // 是否启用分割结果可视化
   std::string seg_show_image_path_; // 分割结果图像保存路径

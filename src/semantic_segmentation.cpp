@@ -10,29 +10,29 @@
 const int batch_size = 16;
 //析构函数
 SemanticSegmentation::~SemanticSegmentation() {
-  delete road_seg_instance_;
+  releasePureTRTPPSeg(road_seg_instance_);
 }
 
 SemanticSegmentation::SemanticSegmentation(int num_threads, const PipelineConfig* config)
     : ImageProcessor(num_threads, "语义分割", BATCH_SIZE, 100) { // 输入队列设为32，输出队列保持100
 
   // 初始化模型
-  SegInitParams init_params;
+  PPSegInitParameters init_params;
   
   // 使用配置参数，如果没有提供则使用默认值
   if (config) {
     init_params.model_path = config->seg_model_path;
-    init_params.enable_show = config->enable_seg_show;
-    init_params.seg_show_image_path = config->seg_show_image_path;
+    // init_params.enable_show = config->enable_seg_show;
+    // init_params.seg_show_image_path = config->seg_show_image_path;
   } else {
     // 默认配置
     init_params.model_path = "seg_model";
-    init_params.enable_show = false;
-    init_params.seg_show_image_path = "./segmentation_results/";
+    // init_params.enable_show = false;
+    // init_params.seg_show_image_path = "./segmentation_results/";
   }
 
-  road_seg_instance_ = createRoadSeg();
-  int init_result = road_seg_instance_->init_seg(init_params);
+  road_seg_instance_ = CreatePureTRTPPSeg();
+  int init_result = road_seg_instance_->Init(init_params);
   
   // 初始化CUDA状态
   try {
@@ -70,26 +70,37 @@ void SemanticSegmentation::process_image(ImageDataPtr image, int thread_id) {
 
   // 执行单个分割
   std::vector<cv::Mat *> image_ptrs{&image->segInResizeMat};
-  SegInputParams input_params(image_ptrs);
+  // SegInputParams input_params(image_ptrs);
   
-  SegResult seg_result;
+  std::vector<SegmentationResult> seg_results;
+  std::vector<cv::Mat> inputs;
+  inputs.push_back(image->segInResizeMat);
   // std::cout << "单个处理帧序号: " << image->frame_idx << std::endl;
-  if (road_seg_instance_->seg_road(input_params, seg_result) != 0) {
+  if (!road_seg_instance_->Predict(inputs, seg_results)) {
     std::cerr << "❌ 语义分割执行失败，帧序号: " << image->frame_idx << std::endl;
+    // 即使推理失败，也要标记分割已完成，避免死锁
+    image->mask_height = image->segInResizeMat.rows;
+    image->mask_width = image->segInResizeMat.cols;
+    image->segmentation_completed = true;
     return;
   }
 
   // 检查并设置结果
-  if (!seg_result.results.empty() &&
-      !seg_result.results[0].label_map.empty()) {
+  if (!seg_results.empty() &&
+      !seg_results[0].label_map.empty()) {
     // 优化：使用移动语义避免拷贝大量数据
-    image->label_map = std::move(seg_result.results[0].label_map);
+    image->label_map = std::move(seg_results[0].label_map);
     image->mask_height = image->segInResizeMat.rows;
     image->mask_width = image->segInResizeMat.cols;
-
-    // 标记分割完成
-    image->segmentation_completed = true;
+  } else {
+    // 即使语义分割失败也要设置基本信息，避免后续模块死等
+    std::cerr << "⚠️ 语义分割结果为空，帧序号: " << image->frame_idx << std::endl;
+    image->mask_height = image->segInResizeMat.rows;
+    image->mask_width = image->segInResizeMat.cols;
   }
+
+  // 无论成功还是失败，都标记分割完成，避免死锁
+  image->segmentation_completed = true;
 
   // 后处理：调用 on_processing_complete
   on_processing_complete(image, thread_id);
@@ -141,10 +152,10 @@ void SemanticSegmentation::on_processing_complete(ImageDataPtr image,
     if (config.enable_seg_show) {
       enable_seg_show_ = config.enable_seg_show;
       seg_show_image_path_ = config.seg_show_image_path;
-      SegInitParams update_params;
-      update_params.enable_show = enable_seg_show_;
-      update_params.seg_show_image_path = seg_show_image_path_;
-      road_seg_instance_->change_params(update_params);
+      // SegInitParams update_params;
+      // update_params.enable_show = enable_seg_show_;
+      // update_params.seg_show_image_path = seg_show_image_path_;
+      // road_seg_instance_->change_params(update_params);
     }
   }
 
@@ -241,8 +252,8 @@ void SemanticSegmentation::process_images_batch(std::vector<ImageDataPtr>& image
   }
   
   // 准备批量输入数据
-  std::vector<cv::Mat*> image_ptrs;
-  image_ptrs.reserve(images.size());
+  std::vector<cv::Mat> image_mats;
+  image_mats.reserve(images.size());
   
   auto preprocess_start = std::chrono::high_resolution_clock::now();
   
@@ -298,7 +309,7 @@ void SemanticSegmentation::process_images_batch(std::vector<ImageDataPtr>& image
       
       // 准备指针数组
       for (auto& image : images) {
-        image_ptrs.push_back(&image->segInResizeMat);
+        image_mats.push_back(image->segInResizeMat);
       }
       
       std::cout << "🚀 并行CUDA流处理: " << images.size() << " 张图像，使用 " << num_streams << " 个流" << std::endl;
@@ -307,17 +318,17 @@ void SemanticSegmentation::process_images_batch(std::vector<ImageDataPtr>& image
       std::cerr << "⚠️ 并行CUDA流处理失败，回退到单张处理: " << e.what() << std::endl;
       cuda_available_ = false;
       // 回退到逐张处理
-      image_ptrs.clear(); // 清空之前可能的部分结果
+      image_mats.clear(); // 清空之前可能的部分结果
       for (auto& image : images) {
         on_processing_start(image, thread_id);
-        image_ptrs.push_back(&image->segInResizeMat);
+        image_mats.push_back(image->segInResizeMat);
       }
     }
   } else {
     // 单张预处理或CUDA不可用
     for (auto& image : images) {
       on_processing_start(image, thread_id);
-      image_ptrs.push_back(&image->segInResizeMat);
+      image_mats.push_back(image->segInResizeMat);
     }
   }
   
@@ -325,11 +336,18 @@ void SemanticSegmentation::process_images_batch(std::vector<ImageDataPtr>& image
   auto preprocess_duration = std::chrono::duration_cast<std::chrono::milliseconds>(preprocess_end - preprocess_start);
   
   // 批量语义分割处理
-  SegInputParams input_params(image_ptrs);
-  SegResult seg_result;
+  // SegInputParams input_params(image_ptrs);
+
+  std::vector<SegmentationResult> seg_results;
   auto seg_start = std::chrono::high_resolution_clock::now();
-  if (road_seg_instance_->seg_road(input_params, seg_result) != 0) {
+  if (!road_seg_instance_->Predict(image_mats, seg_results)) {
     std::cerr << "❌ 批量语义分割执行失败" << std::endl;
+    // 即使推理失败，也要标记所有图像的分割已完成，避免死锁
+    for (auto& image : images) {
+      image->mask_height = 1024;
+      image->mask_width = 1024;
+      image->segmentation_completed = true;
+    }
     return;
   }
   auto seg_end = std::chrono::high_resolution_clock::now();
@@ -341,27 +359,27 @@ void SemanticSegmentation::process_images_batch(std::vector<ImageDataPtr>& image
             << "ms, 处理 " << images.size() << " 张图像" << std::endl;
   
   // 处理批量结果
-  if (seg_result.results.size() != images.size()) {
+  if (seg_results.size() != images.size()) {
     std::cerr << "❌ 批量分割结果数量不匹配，期望: " << images.size() 
-              << "，实际: " << seg_result.results.size() << std::endl;
+              << "，实际: " << seg_results.size() << std::endl;
     return;
   }
   
   // 批量后处理：快速结果分配
   auto postprocess_start = std::chrono::high_resolution_clock::now();
   for (size_t i = 0; i < images.size(); ++i) {
-    if (!seg_result.results[i].label_map.empty()) {
-      images[i]->label_map = std::move(seg_result.results[i].label_map);
+    if (!seg_results[i].label_map.empty()) {
+      images[i]->label_map = std::move(seg_results[i].label_map);
       images[i]->mask_height = 1024; // 固定值，避免重复访问
       images[i]->mask_width = 1024;  // 固定值，避免重复访问
-      images[i]->segmentation_completed = true;
+    } else {
+      // 即使语义分割失败也要设置基本信息，避免后续模块死等
+      std::cerr << "⚠️ 语义分割结果为空，帧序号: " << images[i]->frame_idx << std::endl;
+      images[i]->mask_height = 1024; 
+      images[i]->mask_width = 1024;
     }
     
-    // 跳过后处理调用以提高性能（如果不需要的话）
-    // on_processing_complete(images[i], thread_id);
+    // 无论成功还是失败，都标记语义分割已完成，避免死锁
+    images[i]->segmentation_completed = true;
   }
-  auto postprocess_end = std::chrono::high_resolution_clock::now();
-  auto postprocess_duration = std::chrono::duration_cast<std::chrono::milliseconds>(postprocess_end - postprocess_start);
-  
-  std::cout << "📊 后处理用时: " << postprocess_duration.count() << "ms" << std::endl;
 }

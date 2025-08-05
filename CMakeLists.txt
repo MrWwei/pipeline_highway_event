@@ -2,8 +2,6 @@ cmake_minimum_required(VERSION 3.16)
 project(PipelineHighwayEvent)
 
 enable_language(CUDA)
-include(${FASTDEPLOY_INSTALL_DIR}/FastDeploy.cmake)
-include_directories(${FASTDEPLOY_INCS})
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -19,7 +17,10 @@ link_directories(${tensorRT_libs_DIR})
 
 include_directories(${ThirdParty}/opencv-4.5.4/build/install/include/opencv4)
 link_directories(${ThirdParty}/opencv-4.5.4/build/install/lib)
-
+# cuda
+set(CUDA_TOOLKIT_ROOT_DIR "/usr/local/cuda")
+include_directories(${CUDA_TOOLKIT_ROOT_DIR}/include)
+link_directories(${CUDA_TOOLKIT_ROOT_DIR}/lib64)
 include_directories(/home/ubuntu/cudnn-linux-x86_64-8.4.1.50_cuda11.6-archive/include)
 link_directories(/home/ubuntu/cudnn-linux-x86_64-8.4.1.50_cuda11.6-archive/lib)
 
@@ -34,12 +35,14 @@ set_target_properties( track_lib PROPERTIES IMPORTED_LOCATION /home/ubuntu/wtwei
 include_directories(/home/ubuntu/wtwei/object_track/include)
 
 add_library(road_seg_interface SHARED IMPORTED)
-set_target_properties( road_seg_interface PROPERTIES IMPORTED_LOCATION /home/ubuntu/wtwei/highway_event/road_seg_sdk/build/libroad_seg_sdk_V1.0.so )
-include_directories(/home/ubuntu/wtwei/highway_event/road_seg_sdk)
+set_target_properties( road_seg_interface PROPERTIES IMPORTED_LOCATION /home/ubuntu/wtwei/seg_trt/build/libroad_seg_SDK_V1.0.so )
+include_directories(/home/ubuntu/wtwei/seg_trt/include)
 
 add_library(vehicle_parking SHARED IMPORTED)
 set_target_properties( vehicle_parking PROPERTIES IMPORTED_LOCATION /home/ubuntu/wtwei/vehicle_parking/build/libvehicle_parking_detect_V1.0.so )
 include_directories(/home/ubuntu/wtwei/vehicle_parking/include)
+
+
 # Include directories
 include_directories(include)
 
@@ -64,13 +67,6 @@ file(GLOB_RECURSE cuda_srcs ${PROJECT_SOURCE_DIR}/src/process_mask.cu  )
 set(sdk_target_name highway_event_sdk_v1.0)
 add_library(${sdk_target_name} SHARED ${SOURCES})
 target_link_libraries(${sdk_target_name}
-    ${FASTDEPLOY_INSTALL_DIR}/lib/libfastdeploy.so
-    ${FASTDEPLOY_INSTALL_DIR}/third_libs/install/onnxruntime/lib/libonnxruntime.so
-    ${FASTDEPLOY_INSTALL_DIR}/third_libs/install/paddle_inference/paddle/lib/libpaddle_inference.so
-    ${FASTDEPLOY_INSTALL_DIR}/third_libs/install/paddle_inference/third_party/install/mkldnn/lib/libmkldnn.so.0
-    ${FASTDEPLOY_INSTALL_DIR}/third_libs/install/paddle_inference/third_party/install/mklml/lib/libiomp5.so
-    ${FASTDEPLOY_INSTALL_DIR}/third_libs/install/openvino/runtime/lib/libopenvino.so
-    ${FASTDEPLOY_INSTALL_DIR}/third_libs/install/paddle2onnx/lib/libpaddle2onnx.so
 
     Threads::Threads 
     detect_lib

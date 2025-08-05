@@ -138,7 +138,7 @@ HighwayEventConfig get_config_from_param(JNIEnv* env, jobject param) {
     if (emergencyWidthField) {
         float emergencyWidth = env->GetFloatField(param, emergencyWidthField);
         // 根据应急车道参数调整目标框筛选区域
-        config.box_filter_top_fraction = 4.0f / 7.0f;
+        config.box_filter_top_fraction = 3.0f / 7.0f;
         config.box_filter_bottom_fraction = 8.0f / 9.0f;
         config.times_car_width = emergencyWidth;
     }

@@ -11,7 +11,7 @@
 
 PipelineManager::PipelineManager(const PipelineConfig& config)
     : running_(false), 
-      input_buffer_queue_(100), // 输入缓冲队列大小为100
+      input_buffer_queue_(200), // 输入缓冲队列大小为100
       final_results_(config.final_result_queue_capacity), 
       config_(config) {
   
@@ -269,7 +269,7 @@ void PipelineManager::print_status() const {
   std::cout << "📥 输入缓冲队列 [启用]" << std::endl;
   std::cout << "   缓冲队列: ["
             << std::string(input_buffer_queue_.size() > 0 ? "🟢" : "⚪")
-            << "] " << input_buffer_queue_.size() << "/100" << std::endl;
+            << "] " << input_buffer_queue_.size() << "/200" << std::endl;
 
   // 语义分割阶段
   if (config_.enable_segmentation && semantic_seg_) {
@@ -476,8 +476,6 @@ void PipelineManager::seg_to_mask_thread_func() {
           final_results_.push(seg_result);
         }
       }
-    } else {
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
   }
   std::cout << "seg_to_mask_thread 已退出" << std::endl;
@@ -516,8 +514,6 @@ void PipelineManager::mask_to_detect_thread_func() {
           final_results_.push(mask_result);
         }
       }
-    } else {
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
   }
   std::cout << "mask_to_detect_thread 已退出" << std::endl;
@@ -550,9 +546,6 @@ void PipelineManager::detect_to_track_thread_func() {
           final_results_.push(detect_result);
         }
       }
-    } else {
-      // std::cout << "detect_to_track_thread 等待目标检测结果... 睡眠1秒" << std::endl;
-      // std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
   }
   std::cout << "detect_to_track_thread 已退出" << std::endl;
@@ -580,8 +573,6 @@ void PipelineManager::track_to_event_thread_func() {
           final_results_.push(track_result);
         }
       }
-    } else {
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
   }
   std::cout << "track_to_event_thread 已退出" << std::endl;
@@ -604,8 +595,6 @@ void PipelineManager::event_to_final_thread_func() {
         // 直接添加到最终结果队列
         final_results_.push(event_result);
       }
-    } else {
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
   }
   std::cout << "event_to_final_thread 已退出" << std::endl;
