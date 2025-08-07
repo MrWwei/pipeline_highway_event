@@ -1,6 +1,7 @@
 #include "pipeline_manager.h"
 #include <chrono>
 #include <iostream>
+#include <iomanip>
 #include <map>
 #include <thread>
 #include <future> // for thread timeout handling
@@ -11,7 +12,7 @@
 
 PipelineManager::PipelineManager(const PipelineConfig& config)
     : running_(false), 
-      input_buffer_queue_(200), // 输入缓冲队列大小为100
+      input_buffer_queue_(200), // 输入缓冲队列大小为200
       final_results_(config.final_result_queue_capacity), 
       config_(config) {
   
@@ -261,108 +262,182 @@ void PipelineManager::print_status() const {
   // 清除屏幕
   std::cout << "\033[2J\033[1;1H";
 
-  std::cout << "\n🔄 Pipeline 实时状态:" << std::endl;
-  std::cout << "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            << std::endl;
+  std::cout << "\n🔄 Pipeline 实时状态 (无锁环形队列):" << std::endl;
+  std::cout << "┌──────────────────────┬────────┬─────────────┬─────────────┬─────────────┐" << std::endl;
+  std::cout << "│ 模块名称             │ 状态   │ 输入队列    │ 输出队列    │ 处理线程数  │" << std::endl;
+  std::cout << "├──────────────────────┼────────┼─────────────┼─────────────┼─────────────┤" << std::endl;
 
   // 输入缓冲队列状态
-  std::cout << "📥 输入缓冲队列 [启用]" << std::endl;
-  std::cout << "   缓冲队列: ["
-            << std::string(input_buffer_queue_.size() > 0 ? "🟢" : "⚪")
-            << "] " << input_buffer_queue_.size() << "/200" << std::endl;
+  std::cout << "│ 📥 输入缓冲队列       │ 🟢启用 │ " 
+            << std::setw(3) << input_buffer_queue_.size() << "/200     │      -      │      1      │" << std::endl;
 
   // 语义分割阶段
   if (config_.enable_segmentation && semantic_seg_) {
-    std::cout << "📊 语义分割阶段 [启用]" << std::endl;
-    std::cout << "   输入队列: ["
-              << std::string(semantic_seg_->get_queue_size() > 0 ? "🟢" : "⚪")
-              << "] " << semantic_seg_->get_queue_size() << std::endl;
-    std::cout << "   输出队列: ["
-              << std::string(semantic_seg_->get_output_queue_size() > 0 ? "🟢"
-                                                                        : "⚪")
-              << "] " << semantic_seg_->get_output_queue_size() << std::endl;
+    std::cout << "│ 🎨 语义分割          │ 🟢启用 │ "
+              << std::setw(3) << semantic_seg_->get_queue_size() << "/128     │ "
+              << std::setw(3) << semantic_seg_->get_output_queue_size() << "/128     │ "
+              << std::setw(3) << semantic_seg_->get_thread_count() << "       │" << std::endl;
   } else {
-    std::cout << "📊 语义分割阶段 [已禁用]" << std::endl;
+    std::cout << "│ 🎨 语义分割          │ ⚪禁用 │      -      │      -      │      -      │" << std::endl;
   }
 
   // Mask后处理阶段
   if (config_.enable_segmentation && config_.enable_mask_postprocess && mask_postprocess_) {
-    std::cout << "\n📊 Mask后处理阶段 [启用]" << std::endl;
-    std::cout << "   输入队列: ["
-              << std::string(mask_postprocess_->get_queue_size() > 0 ? "🟢"
-                                                                     : "⚪")
-              << "] " << mask_postprocess_->get_queue_size() << std::endl;
-    std::cout << "   输出队列: ["
-              << std::string(mask_postprocess_->get_output_queue_size() > 0
-                                 ? "🟢"
-                                 : "⚪")
-              << "] " << mask_postprocess_->get_output_queue_size() << std::endl;
+    std::cout << "│ 🎭 Mask后处理        │ 🟢启用 │ "
+              << std::setw(3) << mask_postprocess_->get_queue_size() << "/128     │ "
+              << std::setw(3) << mask_postprocess_->get_output_queue_size() << "/128     │ "
+              << std::setw(3) << mask_postprocess_->get_thread_count() << "       │" << std::endl;
   } else {
-    if (!config_.enable_segmentation) {
-      std::cout << "\n📊 Mask后处理阶段 [已禁用 - 语义分割已禁用]" << std::endl;
-    } else {
-      std::cout << "\n📊 Mask后处理阶段 [已禁用]" << std::endl;
-    }
+    std::cout << "│ 🎭 Mask后处理        │ ⚪禁用 │      -      │      -      │      -      │" << std::endl;
   }
 
   // 目标检测阶段
   if (config_.enable_detection && object_det_) {
-    std::cout << "\n📊 目标检测阶段 [启用]" << std::endl;
-    std::cout << "   输入队列: ["
-              << std::string(object_det_->get_queue_size() > 0 ? "🟢" : "⚪")
-              << "] " << object_det_->get_queue_size() << std::endl;
-    std::cout << "   输出队列: ["
-              << std::string(object_det_->get_output_queue_size() > 0 ? "🟢"
-                                                                      : "⚪")
-              << "] " << object_det_->get_output_queue_size() << std::endl;
+    std::cout << "│ 🎯 目标检测          │ 🟢启用 │ "
+              << std::setw(3) << object_det_->get_queue_size() << "/128     │ "
+              << std::setw(3) << object_det_->get_output_queue_size() << "/128     │ "
+              << std::setw(3) << object_det_->get_thread_count() << "       │" << std::endl;
   } else {
-    std::cout << "\n📊 目标检测阶段 [已禁用]" << std::endl;
+    std::cout << "│ 🎯 目标检测          │ ⚪禁用 │      -      │      -      │      -      │" << std::endl;
   }
 
   // 目标跟踪阶段
   if (config_.enable_detection && config_.enable_tracking && object_track_) {
-    std::cout << "\n🎯 目标跟踪阶段 [启用]" << std::endl;
-    std::cout << "   输入队列: ["
-              << std::string(object_track_->get_queue_size() > 0 ? "🟢" : "⚪")
-              << "] " << object_track_->get_queue_size() << std::endl;
-    std::cout << "   输出队列: ["
-              << std::string(object_track_->get_output_queue_size() > 0 ? "🟢"
-                                                                        : "⚪")
-              << "] " << object_track_->get_output_queue_size() << std::endl;
+    std::cout << "│ 🚗 目标跟踪          │ 🟢启用 │ "
+              << std::setw(3) << object_track_->get_queue_size() << "/128     │ "
+              << std::setw(3) << object_track_->get_output_queue_size() << "/128     │ "
+              << std::setw(3) << object_track_->get_thread_count() << "       │" << std::endl;
   } else {
-    if (!config_.enable_detection) {
-      std::cout << "\n🎯 目标跟踪阶段 [已禁用 - 目标检测已禁用]" << std::endl;
-    } else {
-      std::cout << "\n🎯 目标跟踪阶段 [已禁用]" << std::endl;
-    }
+    std::cout << "│ 🚗 目标跟踪          │ ⚪禁用 │      -      │      -      │      -      │" << std::endl;
   }
 
   // 事件判定阶段
   if (config_.enable_segmentation && config_.enable_event_determine && event_determine_) {
-    std::cout << "\n📦 事件判定阶段 [启用]" << std::endl;
-    std::cout << "   输入队列: ["
-              << std::string(event_determine_->get_queue_size() > 0 ? "🟢" : "⚪")
-              << "] " << event_determine_->get_queue_size() << std::endl;
-    std::cout << "   输出队列: ["
-              << std::string(event_determine_->get_output_queue_size() > 0 ? "🟢"
-                                                                      : "⚪")
-              << "] " << event_determine_->get_output_queue_size() << std::endl;
+    std::cout << "│ 📦 事件判定          │ 🟢启用 │ "
+              << std::setw(3) << event_determine_->get_queue_size() << "/128     │ "
+              << std::setw(3) << event_determine_->get_output_queue_size() << "/128     │ "
+              << std::setw(3) << event_determine_->get_thread_count() << "       │" << std::endl;
   } else {
-    if (!config_.enable_segmentation) {
-      std::cout << "\n📦 事件判定阶段 [已禁用 - 语义分割已禁用]" << std::endl;
-    } else {
-      std::cout << "\n📦 事件判定阶段 [已禁用]" << std::endl;
-    }
+    std::cout << "│ 📦 事件判定          │ ⚪禁用 │      -      │      -      │      -      │" << std::endl;
   }
 
   // 最终结果队列
-  std::cout << "\n📊 最终结果" << std::endl;
-  std::cout << "   结果队列: ["
-            << std::string(final_results_.size() > 0 ? "🟢" : "⚪") << "] "
-            << final_results_.size() << std::endl;
+  std::cout << "│ 📊 最终结果队列      │ 🟢启用 │      -      │ "
+            << std::setw(3) << final_results_.size() << "/" << std::setw(3) << final_results_.max_size() << "     │      -      │" << std::endl;
 
-  std::cout << "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            << std::endl;
+  std::cout << "└──────────────────────┴────────┴─────────────┴─────────────┴─────────────┘" << std::endl;
+
+  // 显示队列健康状态
+  std::cout << "\n📈 队列健康状态:" << std::endl;
+  std::cout << "┌──────────────────────┬─────────────┬─────────────┬─────────────┐" << std::endl;
+  std::cout << "│ 队列类型             │ 使用率 %    │ 剩余容量    │ 状态指示    │" << std::endl;
+  std::cout << "├──────────────────────┼─────────────┼─────────────┼─────────────┤" << std::endl;
+
+  // 输入缓冲队列
+  double input_usage = (double)input_buffer_queue_.size() / 200.0 * 100.0;
+  std::string input_status = input_usage < 50 ? "🟢正常" : (input_usage < 80 ? "🟡警告" : "🔴拥堵");
+  std::cout << "│ 输入缓冲队列         │ " << std::setw(7) << std::fixed << std::setprecision(1) << input_usage << " %   │ "
+            << std::setw(7) << input_buffer_queue_.remaining_capacity() << "     │ " << input_status << "     │" << std::endl;
+
+  // 检查各模块队列
+  if (config_.enable_segmentation && semantic_seg_) {
+    // 获取实际的队列容量信息
+    size_t seg_input_size = semantic_seg_->get_queue_size();
+    size_t seg_output_size = semantic_seg_->get_output_queue_size();
+    
+    size_t seg_input_capacity = 128; // 无锁环形队列，向上取2的幂次方
+    size_t seg_output_capacity = 128;
+    
+    double seg_input_usage = seg_input_capacity > 0 ? (double)seg_input_size / seg_input_capacity * 100.0 : 0.0;
+    double seg_output_usage = seg_output_capacity > 0 ? (double)seg_output_size / seg_output_capacity * 100.0 : 0.0;
+    std::string seg_input_status = seg_input_usage < 50 ? "🟢正常" : (seg_input_usage < 80 ? "🟡警告" : "🔴拥堵");
+    std::string seg_output_status = seg_output_usage < 50 ? "🟢正常" : (seg_output_usage < 80 ? "🟡警告" : "🔴拥堵");
+    
+    std::cout << "│ 语义分割输入队列     │ " << std::setw(7) << std::fixed << std::setprecision(1) << seg_input_usage << " %   │ "
+              << std::setw(7) << (seg_input_capacity - seg_input_size) << "     │ " << seg_input_status << "     │" << std::endl;
+    std::cout << "│ 语义分割输出队列     │ " << std::setw(7) << std::fixed << std::setprecision(1) << seg_output_usage << " %   │ "
+              << std::setw(7) << (seg_output_capacity - seg_output_size) << "     │ " << seg_output_status << "     │" << std::endl;
+  }
+
+  if (config_.enable_segmentation && config_.enable_mask_postprocess && mask_postprocess_) {
+    // Mask后处理队列
+    size_t mask_input_size = mask_postprocess_->get_queue_size();
+    size_t mask_output_size = mask_postprocess_->get_output_queue_size();
+    size_t mask_input_capacity = 128;
+    size_t mask_output_capacity = 128;
+    
+    double mask_input_usage = mask_input_capacity > 0 ? (double)mask_input_size / mask_input_capacity * 100.0 : 0.0;
+    double mask_output_usage = mask_output_capacity > 0 ? (double)mask_output_size / mask_output_capacity * 100.0 : 0.0;
+    std::string mask_input_status = mask_input_usage < 50 ? "🟢正常" : (mask_input_usage < 80 ? "🟡警告" : "🔴拥堵");
+    std::string mask_output_status = mask_output_usage < 50 ? "🟢正常" : (mask_output_usage < 80 ? "🟡警告" : "🔴拥堵");
+    
+    std::cout << "│ Mask后处理输入队列   │ " << std::setw(7) << std::fixed << std::setprecision(1) << mask_input_usage << " %   │ "
+              << std::setw(7) << (mask_input_capacity - mask_input_size) << "     │ " << mask_input_status << "     │" << std::endl;
+    std::cout << "│ Mask后处理输出队列   │ " << std::setw(7) << std::fixed << std::setprecision(1) << mask_output_usage << " %   │ "
+              << std::setw(7) << (mask_output_capacity - mask_output_size) << "     │ " << mask_output_status << "     │" << std::endl;
+  }
+
+  if (config_.enable_detection && object_det_) {
+    // 获取实际的队列容量信息
+    size_t det_input_size = object_det_->get_queue_size();
+    size_t det_output_size = object_det_->get_output_queue_size();
+    size_t det_input_capacity = 128; // 无锁环形队列，向上取2的幂次方
+    size_t det_output_capacity = 128;
+    
+    double det_input_usage = det_input_capacity > 0 ? (double)det_input_size / det_input_capacity * 100.0 : 0.0;
+    double det_output_usage = det_output_capacity > 0 ? (double)det_output_size / det_output_capacity * 100.0 : 0.0;
+    std::string det_input_status = det_input_usage < 50 ? "🟢正常" : (det_input_usage < 80 ? "🟡警告" : "🔴拥堵");
+    std::string det_output_status = det_output_usage < 50 ? "🟢正常" : (det_output_usage < 80 ? "🟡警告" : "🔴拥堵");
+    
+    std::cout << "│ 目标检测输入队列     │ " << std::setw(7) << std::fixed << std::setprecision(1) << det_input_usage << " %   │ "
+              << std::setw(7) << (det_input_capacity - det_input_size) << "     │ " << det_input_status << "     │" << std::endl;
+    std::cout << "│ 目标检测输出队列     │ " << std::setw(7) << std::fixed << std::setprecision(1) << det_output_usage << " %   │ "
+              << std::setw(7) << (det_output_capacity - det_output_size) << "     │ " << det_output_status << "     │" << std::endl;
+  }
+
+  if (config_.enable_detection && config_.enable_tracking && object_track_) {
+    // 目标跟踪队列
+    size_t track_input_size = object_track_->get_queue_size();
+    size_t track_output_size = object_track_->get_output_queue_size();
+    size_t track_input_capacity = 128;
+    size_t track_output_capacity = 128;
+    
+    double track_input_usage = track_input_capacity > 0 ? (double)track_input_size / track_input_capacity * 100.0 : 0.0;
+    double track_output_usage = track_output_capacity > 0 ? (double)track_output_size / track_output_capacity * 100.0 : 0.0;
+    std::string track_input_status = track_input_usage < 50 ? "🟢正常" : (track_input_usage < 80 ? "🟡警告" : "🔴拥堵");
+    std::string track_output_status = track_output_usage < 50 ? "🟢正常" : (track_output_usage < 80 ? "🟡警告" : "🔴拥堵");
+    
+    std::cout << "│ 目标跟踪输入队列     │ " << std::setw(7) << std::fixed << std::setprecision(1) << track_input_usage << " %   │ "
+              << std::setw(7) << (track_input_capacity - track_input_size) << "     │ " << track_input_status << "     │" << std::endl;
+    std::cout << "│ 目标跟踪输出队列     │ " << std::setw(7) << std::fixed << std::setprecision(1) << track_output_usage << " %   │ "
+              << std::setw(7) << (track_output_capacity - track_output_size) << "     │ " << track_output_status << "     │" << std::endl;
+  }
+
+  if (config_.enable_segmentation && config_.enable_event_determine && event_determine_) {
+    // 事件判定队列
+    size_t event_input_size = event_determine_->get_queue_size();
+    size_t event_output_size = event_determine_->get_output_queue_size();
+    size_t event_input_capacity = 128;
+    size_t event_output_capacity = 128;
+    
+    double event_input_usage = event_input_capacity > 0 ? (double)event_input_size / event_input_capacity * 100.0 : 0.0;
+    double event_output_usage = event_output_capacity > 0 ? (double)event_output_size / event_output_capacity * 100.0 : 0.0;
+    std::string event_input_status = event_input_usage < 50 ? "🟢正常" : (event_input_usage < 80 ? "🟡警告" : "🔴拥堵");
+    std::string event_output_status = event_output_usage < 50 ? "🟢正常" : (event_output_usage < 80 ? "🟡警告" : "🔴拥堵");
+    
+    std::cout << "│ 事件判定输入队列     │ " << std::setw(7) << std::fixed << std::setprecision(1) << event_input_usage << " %   │ "
+              << std::setw(7) << (event_input_capacity - event_input_size) << "     │ " << event_input_status << "     │" << std::endl;
+    std::cout << "│ 事件判定输出队列     │ " << std::setw(7) << std::fixed << std::setprecision(1) << event_output_usage << " %   │ "
+              << std::setw(7) << (event_output_capacity - event_output_size) << "     │ " << event_output_status << "     │" << std::endl;
+  }
+
+  // 最终结果队列
+  double final_usage = (double)final_results_.size() / final_results_.max_size() * 100.0;
+  std::string final_status = final_usage < 50 ? "🟢正常" : (final_usage < 80 ? "🟡警告" : "🔴拥堵");
+  std::cout << "│ 最终结果队列         │ " << std::setw(7) << std::fixed << std::setprecision(1) << final_usage << " %   │ "
+            << std::setw(7) << final_results_.remaining_capacity() << "     │ " << final_status << "     │" << std::endl;
+
+  std::cout << "└──────────────────────┴─────────────┴─────────────┴─────────────┘" << std::endl;
 }
 
 void PipelineManager::print_thread_info() const {

@@ -56,8 +56,8 @@ public:
         // 配置高性能参数
         HighwayEventConfig config;
         
-        config.semantic_threads = 2;
-        config.mask_threads = 16;
+        config.semantic_threads = 1;
+        config.mask_threads = 8;
         config.detection_threads = 2;
         config.tracking_threads = 1;
         config.filter_threads = 1;
@@ -65,9 +65,9 @@ public:
         config.enable_debug_log = false;
         config.enable_segmentation = true; // 关闭语义分割
         config.enable_mask_postprocess = true; // 关闭mask后处理
-        config.enable_detection = false;
-        config.enable_tracking = false; // 关闭目标跟踪模块
-        config.enable_event_determine = false;   // 关闭事件判定
+        config.enable_detection = true;
+        config.enable_tracking = true; // 关闭目标跟踪模块
+        config.enable_event_determine = true;   // 关闭事件判定
 
         config.seg_model_path = "ppseg_model.onnx"; // 语义分割模型路径
 
@@ -131,6 +131,8 @@ public:
 
                 
                 if (result.status == ResultStatus::SUCCESS) {
+                    // cv::Mat mask = result.mask;
+                    // cv::imwrite("mask_outs/output_" + std::to_string(result.frame_id) + ".jpg", mask);
                     
                     total_successful.fetch_add(1);
                     total_detections.fetch_add(result.detections.size());

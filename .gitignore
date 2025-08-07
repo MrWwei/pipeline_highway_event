@@ -5,3 +5,4 @@ outs
 *.jpg
 seg_model
 segmentation_results
+seg_results

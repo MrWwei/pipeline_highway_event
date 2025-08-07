@@ -108,10 +108,11 @@ ProcessResult HighwayEventDetectorImpl::convert_to_process_result(ImageDataPtr i
     result.status = ResultStatus::SUCCESS;
     result.frame_id = image_data->frame_idx;
     result.roi = image_data->roi;
-    // result.mask = image_data->mask.clone();
-    cv::Mat image_src = image_data->imageMat;
+    // result.srcImage = image_data->imageMat.clone();
+    // cv::Mat image_src = image_data->imageMat;
+    // cv::imwrite("src_outs/output_" + std::to_string(result.frame_id) + ".jpg", image_src);
     // if(!image_data->mask.empty()) {
-    //     cv::Mat mask = image_data->mask.clone();
+        // result.mask = image_data->mask.clone(); // 直接使用clone避免共享内存问题
     //     cv::imwrite("mask_outs/output_" + std::to_string(result.frame_id) + ".jpg", mask);
     // }
     

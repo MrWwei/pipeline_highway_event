@@ -340,7 +340,6 @@ void SemanticSegmentation::process_image(ImageDataPtr image, int thread_id) {
     image->label_map = std::move(seg_results[0].label_map);
     image->mask_height = 1024; // 固定值，避免重复访问
     image->mask_width = 1024;  // 固定值，避免重复访问
-    
     // 保存分割结果（如果启用）
     if (enable_seg_show_ && (image->frame_idx % seg_show_interval_ == 0)) {
       // 在这里可以添加保存逻辑

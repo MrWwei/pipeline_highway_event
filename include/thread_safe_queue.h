@@ -1,190 +1,264 @@
 #pragma once
-#include <condition_variable>
-#include <mutex>
-#include <queue>
 #include <atomic>
+#include <memory>
+#include <thread>
+#include <chrono>
 
-template <typename T> class ThreadSafeQueue {
+/**
+ * 高性能无锁环形队列 (Lock-Free Ring Buffer Queue)
+ * 基于原子操作实现的多生产者多消费者队列
+ * 相比传统的基于锁的队列，具有更低的延迟和更高的吞吐量
+ */
+template <typename T> 
+class ThreadSafeQueue {
 private:
-  mutable std::mutex mtx_;
-  std::condition_variable cv_not_empty_;
-  std::condition_variable cv_not_full_;
-  std::queue<T> q_;
-  const size_t cap_;
+  // 环形缓冲区节点
+  struct Node {
+    std::atomic<T*> data{nullptr};
+    std::atomic<size_t> sequence{0};
+    
+    Node() = default;
+    ~Node() {
+      T* ptr = data.load();
+      if (ptr) {
+        delete ptr;
+      }
+    }
+  };
+
+  // 缓冲区大小，必须是2的幂次方以便使用位掩码优化
+  size_t capacity_;
+  size_t mask_;
+  
+  // 环形缓冲区
+  std::unique_ptr<Node[]> buffer_;
+  
+  // 生产者和消费者位置指针
+  alignas(64) std::atomic<size_t> write_pos_{0};  // 缓存行对齐避免伪共享
+  alignas(64) std::atomic<size_t> read_pos_{0};   // 缓存行对齐避免伪共享
+  
+  // 关闭标志
   std::atomic<bool> shutdown_{false};
+  
+  // 将输入大小向上舍入到最近的2的幂次方
+  static size_t round_up_to_power_of_2(size_t n) {
+    if (n == 0) return 1;
+    n--;
+    n |= n >> 1;
+    n |= n >> 2;
+    n |= n >> 4;
+    n |= n >> 8;
+    n |= n >> 16;
+    n |= n >> 32;
+    return n + 1;
+  }
 
 public:
-  explicit ThreadSafeQueue(size_t max_size = 100) : cap_(max_size) {}
+  explicit ThreadSafeQueue(size_t max_size = 100) 
+    : capacity_(round_up_to_power_of_2(max_size))
+    , mask_(capacity_ - 1)
+    , buffer_(std::make_unique<Node[]>(capacity_)) {
+    
+    // 初始化序列号
+    for (size_t i = 0; i < capacity_; ++i) {
+      buffer_[i].sequence.store(i, std::memory_order_relaxed);
+    }
+  }
 
   /*-------------------------------------------------
-   * 阻塞 push（拷贝）
+   * 阻塞 push（拷贝）- 高性能无锁实现
    *------------------------------------------------*/
   void push(const T &value) {
-    std::unique_lock<std::mutex> lk(mtx_);
-    cv_not_full_.wait(lk, [this] { return q_.size() < cap_ || shutdown_.load(); });
-    
-    if (shutdown_.load()) {
-      return; // 如果已关闭，直接返回
+    T* new_item = new T(value);
+    if (!try_push_impl(new_item)) {
+      // 如果推送失败，进入退避重试机制
+      delete new_item;
+      if (shutdown_.load(std::memory_order_acquire)) {
+        return;
+      }
+      
+      // 指数退避重试
+      size_t backoff = 1;
+      while (!shutdown_.load(std::memory_order_acquire)) {
+        new_item = new T(value);
+        if (try_push_impl(new_item)) {
+          return;
+        }
+        delete new_item;
+        
+        // 指数退避，避免忙等
+        std::this_thread::sleep_for(std::chrono::nanoseconds(backoff));
+        backoff = std::min(backoff * 2, static_cast<size_t>(1000)); // 最大1微秒
+      }
     }
-
-    try {
-      q_.push(value);
-    } catch (...) {
-      lk.unlock();
-      cv_not_empty_.notify_all(); // 异常也唤醒
-      cv_not_full_.notify_all();
-      throw;
-    }
-    lk.unlock();
-    cv_not_empty_.notify_one();
   }
 
   /*-------------------------------------------------
-   * 阻塞 push（移动）
+   * 阻塞 push（移动）- 高性能无锁实现
    *------------------------------------------------*/
   void push(T &&value) {
-    std::unique_lock<std::mutex> lk(mtx_);
-    cv_not_full_.wait(lk, [this] { return q_.size() < cap_ || shutdown_.load(); });
-    
-    if (shutdown_.load()) {
-      return; // 如果已关闭，直接返回
+    T* new_item = new T(std::move(value));
+    if (!try_push_impl(new_item)) {
+      delete new_item;
+      if (shutdown_.load(std::memory_order_acquire)) {
+        return;
+      }
+      
+      // 指数退避重试
+      size_t backoff = 1;
+      while (!shutdown_.load(std::memory_order_acquire)) {
+        new_item = new T(std::move(value));
+        if (try_push_impl(new_item)) {
+          return;
+        }
+        delete new_item;
+        
+        std::this_thread::sleep_for(std::chrono::nanoseconds(backoff));
+        backoff = std::min(backoff * 2, static_cast<size_t>(1000));
+      }
     }
-
-    try {
-      q_.push(std::move(value));
-    } catch (...) {
-      lk.unlock();
-      cv_not_empty_.notify_all();
-      cv_not_full_.notify_all();
-      throw;
-    }
-    lk.unlock();
-    cv_not_empty_.notify_one();
   }
 
   /*-------------------------------------------------
-   * 完美转发 emplace（可构造任意参数）
+   * 完美转发 emplace - 高性能无锁实现
    *------------------------------------------------*/
-  template <typename... Args> void emplace(Args &&... args) {
-    std::unique_lock<std::mutex> lk(mtx_);
-    cv_not_full_.wait(lk, [this] { return q_.size() < cap_ || shutdown_.load(); });
-    
-    if (shutdown_.load()) {
-      return; // 如果已关闭，直接返回
+  template <typename... Args> 
+  void emplace(Args &&... args) {
+    T* new_item = new T(std::forward<Args>(args)...);
+    if (!try_push_impl(new_item)) {
+      delete new_item;
+      if (shutdown_.load(std::memory_order_acquire)) {
+        return;
+      }
+      
+      // 指数退避重试
+      size_t backoff = 1;
+      while (!shutdown_.load(std::memory_order_acquire)) {
+        new_item = new T(std::forward<Args>(args)...);
+        if (try_push_impl(new_item)) {
+          return;
+        }
+        delete new_item;
+        
+        std::this_thread::sleep_for(std::chrono::nanoseconds(backoff));
+        backoff = std::min(backoff * 2, static_cast<size_t>(1000));
+      }
     }
-
-    try {
-      q_.emplace(std::forward<Args>(args)...);
-    } catch (...) {
-      lk.unlock();
-      cv_not_empty_.notify_all();
-      cv_not_full_.notify_all();
-      throw;
-    }
-    lk.unlock();
-    cv_not_empty_.notify_one();
   }
 
   /*-------------------------------------------------
-   * 阻塞 pop
+   * 阻塞 pop - 高性能无锁实现
    *------------------------------------------------*/
   bool wait_and_pop(T &out) {
-    std::unique_lock<std::mutex> lk(mtx_);
-    cv_not_empty_.wait(lk, [this] { return !q_.empty() || shutdown_.load(); });
+    T* item = nullptr;
     
-    if (shutdown_.load() && q_.empty()) {
-      return false; // 已关闭且队列为空，返回false表示失败
+    // 先尝试非阻塞获取
+    if (try_pop_impl(item)) {
+      out = std::move(*item);
+      delete item;
+      return true;
     }
-
-    try {
-      out = std::move(q_.front());
-      q_.pop();
-    } catch (...) {
-      lk.unlock();
-      cv_not_empty_.notify_all();
-      cv_not_full_.notify_all();
-      throw;
-    }
-    lk.unlock();
-    cv_not_full_.notify_one();
-    return true; // 成功获取数据
-  }
-
-  /*-------------------------------------------------
-   * 非阻塞 try_pop 方法
-   *------------------------------------------------*/
-  bool try_pop(T &out) {
-    std::lock_guard<std::mutex> lk(mtx_);
-    if (q_.empty()) {
+    
+    // 如果队列为空且已关闭，直接返回
+    if (shutdown_.load(std::memory_order_acquire)) {
       return false;
     }
     
-    try {
-      out = std::move(q_.front());
-      q_.pop();
-    } catch (...) {
-      cv_not_empty_.notify_all();
-      cv_not_full_.notify_all();
-      throw;
+    // 进入等待模式，使用指数退避
+    size_t backoff = 1;
+    while (!shutdown_.load(std::memory_order_acquire)) {
+      if (try_pop_impl(item)) {
+        out = std::move(*item);
+        delete item;
+        return true;
+      }
+      
+      // 指数退避等待
+      std::this_thread::sleep_for(std::chrono::nanoseconds(backoff));
+      backoff = std::min(backoff * 2, static_cast<size_t>(10000)); // 最大10微秒
     }
-    cv_not_full_.notify_one();
-    return true;
+    
+    return false; // 已关闭且队列为空
   }
 
   /*-------------------------------------------------
-   * 只读查询
+   * 非阻塞 try_pop 方法 - 高性能无锁实现
+   *------------------------------------------------*/
+  bool try_pop(T &out) {
+    T* item = nullptr;
+    if (try_pop_impl(item)) {
+      out = std::move(*item);
+      delete item;
+      return true;
+    }
+    return false;
+  }
+
+  /*-------------------------------------------------
+   * 只读查询 - 无锁实现
    *------------------------------------------------*/
   bool empty() const {
-    std::lock_guard<std::mutex> lk(mtx_);
-    return q_.empty();
+    size_t read_pos = read_pos_.load(std::memory_order_acquire);
+    size_t write_pos = write_pos_.load(std::memory_order_acquire);
+    return read_pos == write_pos;
   }
 
   size_t size() const {
-    std::lock_guard<std::mutex> lk(mtx_);
-    return q_.size();
+    size_t write_pos = write_pos_.load(std::memory_order_acquire);
+    size_t read_pos = read_pos_.load(std::memory_order_acquire);
+    return write_pos - read_pos;
   }
 
   bool full() const {
-    std::lock_guard<std::mutex> lk(mtx_);
-    return q_.size() >= cap_;
+    size_t write_pos = write_pos_.load(std::memory_order_acquire);
+    size_t read_pos = read_pos_.load(std::memory_order_acquire);
+    return (write_pos - read_pos) >= capacity_;
   }
 
-  size_t max_size() const { return cap_; }
+  size_t max_size() const { 
+    return capacity_; 
+  }
 
   size_t remaining_capacity() const {
-    std::lock_guard<std::mutex> lk(mtx_);
-    return cap_ - q_.size();
+    size_t write_pos = write_pos_.load(std::memory_order_acquire);
+    size_t read_pos = read_pos_.load(std::memory_order_acquire);
+    return capacity_ - (write_pos - read_pos);
   }
 
   /*-------------------------------------------------
-   * 清空队列
+   * 清空队列 - 无锁实现
    *------------------------------------------------*/
   void clear() {
-    std::lock_guard<std::mutex> lk(mtx_);
-    while (!q_.empty()) {
-      q_.pop();
+    T dummy;
+    while (try_pop(dummy)) {
+      // 继续清空直到队列为空
     }
-    cv_not_full_.notify_all();
   }
 
   /*-------------------------------------------------
-   * 关闭队列，唤醒所有等待的线程
+   * 关闭队列，停止所有操作
    *------------------------------------------------*/
   void shutdown() {
-    std::lock_guard<std::mutex> lk(mtx_);
-    shutdown_.store(true);
-    cv_not_empty_.notify_all();
-    cv_not_full_.notify_all();
+    shutdown_.store(true, std::memory_order_release);
   }
 
   /*-------------------------------------------------
    * 重置队列，允许重新使用
    *------------------------------------------------*/
   void reset() {
-    std::lock_guard<std::mutex> lk(mtx_);
-    shutdown_.store(false);
-    while (!q_.empty()) {
-      q_.pop();
+    shutdown_.store(false, std::memory_order_release);
+    clear();
+    // 重置位置指针
+    read_pos_.store(0, std::memory_order_release);
+    write_pos_.store(0, std::memory_order_release);
+    
+    // 重新初始化序列号
+    for (size_t i = 0; i < capacity_; ++i) {
+      buffer_[i].sequence.store(i, std::memory_order_relaxed);
+      T* old_data = buffer_[i].data.exchange(nullptr, std::memory_order_acq_rel);
+      if (old_data) {
+        delete old_data;
+      }
     }
   }
 
@@ -192,6 +266,71 @@ public:
    * 检查是否已关闭
    *------------------------------------------------*/
   bool is_shutdown() const {
-    return shutdown_.load();
+    return shutdown_.load(std::memory_order_acquire);
+  }
+
+private:
+  /*-------------------------------------------------
+   * 内部无锁推送实现
+   *------------------------------------------------*/
+  bool try_push_impl(T* item) {
+    size_t current_write = write_pos_.load(std::memory_order_relaxed);
+    
+    for (;;) {
+      Node& node = buffer_[current_write & mask_];
+      size_t node_seq = node.sequence.load(std::memory_order_acquire);
+      
+      if (node_seq == current_write) {
+        // 找到可用节点，尝试写入
+        if (write_pos_.compare_exchange_weak(current_write, current_write + 1, 
+                                           std::memory_order_relaxed)) {
+          // 成功获取写入位置，设置数据
+          node.data.store(item, std::memory_order_release);
+          node.sequence.store(current_write + 1, std::memory_order_release);
+          return true;
+        }
+      } else if (node_seq < current_write) {
+        // 节点还被消费者占用，队列可能满了
+        size_t read_pos = read_pos_.load(std::memory_order_acquire);
+        if (current_write - read_pos >= capacity_) {
+          return false; // 队列满
+        }
+        // 重新读取写位置
+        current_write = write_pos_.load(std::memory_order_relaxed);
+      } else {
+        // 其他生产者已经写入了这个位置，重新读取写位置
+        current_write = write_pos_.load(std::memory_order_relaxed);
+      }
+    }
+  }
+
+  /*-------------------------------------------------
+   * 内部无锁弹出实现
+   *------------------------------------------------*/
+  bool try_pop_impl(T*& item) {
+    size_t current_read = read_pos_.load(std::memory_order_relaxed);
+    
+    for (;;) {
+      Node& node = buffer_[current_read & mask_];
+      size_t node_seq = node.sequence.load(std::memory_order_acquire);
+      
+      if (node_seq == current_read + 1) {
+        // 找到可读节点，尝试读取
+        if (read_pos_.compare_exchange_weak(current_read, current_read + 1,
+                                          std::memory_order_relaxed)) {
+          // 成功获取读取位置，获取数据
+          item = node.data.load(std::memory_order_acquire);
+          node.data.store(nullptr, std::memory_order_release);
+          node.sequence.store(current_read + capacity_, std::memory_order_release);
+          return item != nullptr;
+        }
+      } else if (node_seq < current_read + 1) {
+        // 队列为空
+        return false;
+      } else {
+        // 其他消费者已经读取了这个位置，重新读取读位置
+        current_read = read_pos_.load(std::memory_order_relaxed);
+      }
+    }
   }
 };
