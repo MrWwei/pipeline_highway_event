@@ -64,10 +64,10 @@ public:
         config.result_queue_capacity = 50; // 适合流式处理的队列大小
         config.enable_debug_log = false;
         config.enable_segmentation = true; // 关闭语义分割
-        config.enable_mask_postprocess = true; // 关闭mask后处理
-        config.enable_detection = true;
-        config.enable_tracking = true; // 关闭目标跟踪模块
-        config.enable_event_determine = true;   // 关闭事件判定
+        config.enable_mask_postprocess = false; // 关闭mask后处理
+        config.enable_detection = false;
+        config.enable_tracking = false; // 关闭目标跟踪模块
+        config.enable_event_determine = false;   // 关闭事件判定
 
         config.seg_model_path = "ppseg_model.onnx"; // 语义分割模型路径
 

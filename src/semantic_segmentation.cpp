@@ -23,9 +23,12 @@ SemanticSegmentation::~SemanticSegmentation() {
 }
 
 SemanticSegmentation::SemanticSegmentation(int num_threads, const PipelineConfig* config)
-    : ImageProcessor(num_threads, "语义分割", 100, 100), // 输入队列改为100，输出队列保持100
+    : ImageProcessor(num_threads, "语义分割", 32, 100), // 输入队列固定为32，输出队列保持100
       next_expected_frame_(0),
-      order_thread_running_(false) {
+      order_thread_running_(false),
+      batch_ready_(false),
+      batch_processing_(false),
+      batch_completion_count_(0) {
 
   // 初始化输出监控
   recent_output_frames_.clear();
@@ -75,6 +78,7 @@ SemanticSegmentation::SemanticSegmentation(int num_threads, const PipelineConfig
   }
   
   std::cout << "✅ 语义分割模块初始化完成，支持 " << num_threads << " 个线程，每线程独立模型实例" << std::endl;
+  std::cout << "🎯 新批处理机制：严格32个数据为一批，确保有序输出，无丢帧风险" << std::endl;
 }
 
 // 重写 start 方法
@@ -86,7 +90,16 @@ void SemanticSegmentation::start() {
   next_expected_frame_.store(0);
   order_thread_running_.store(false);  // 延迟启动顺序输出线程
   
-  std::cout << "✅ 语义分割模块已启动，将在首次获取结果时启动顺序输出线程" << std::endl;
+  // 重置批次处理状态
+  batch_ready_.store(false);
+  batch_processing_.store(false);
+  batch_completion_count_.store(0);
+  {
+    std::lock_guard<std::mutex> lock(batch_mutex_);
+    current_batch_.clear();
+  }
+  
+  std::cout << "✅ 语义分割模块已启动，严格32批次处理模式，将在首次获取结果时启动顺序输出线程" << std::endl;
 }
 
 // 重写 stop 方法
@@ -103,6 +116,16 @@ void SemanticSegmentation::stop() {
     }
   }
   
+  // 清理批次处理状态
+  {
+    std::lock_guard<std::mutex> lock(batch_mutex_);
+    batch_ready_.store(false);
+    batch_processing_.store(false);
+    batch_completion_count_.store(0);
+    current_batch_.clear();
+  }
+  batch_cv_.notify_all();
+  
   // 清空顺序缓冲区
   {
     std::lock_guard<std::mutex> lock(order_mutex_);
@@ -115,74 +138,137 @@ void SemanticSegmentation::stop() {
     recent_output_frames_.clear();
   }
   
-  std::cout << "✅ 语义分割模块已停止，顺序输出线程已关闭" << std::endl;
+  std::cout << "✅ 语义分割模块已停止，顺序输出线程已关闭，批次处理状态已清理" << std::endl;
 }
 
-// 重写工作线程函数，支持批量处理
+// 重写工作线程函数，支持严格的32批次处理
 void SemanticSegmentation::worker_thread_func(int thread_id) {
-  std::cout << "🔄 " << processor_name_ << "批量工作线程 " << thread_id << " 启动"
+  std::cout << "🔄 " << processor_name_ << "工作线程 " << thread_id << " 启动，等待32个批次数据"
             << std::endl;
 
-  const size_t BATCH_SIZE = 32; // 批量处理大小
-  std::vector<ImageDataPtr> batch_images;
-  batch_images.reserve(BATCH_SIZE);
-
+  const size_t BATCH_SIZE = 32; // 固定批量处理大小
+  
   while (running_.load()) {
-    batch_images.clear();
+    // 第一步：等待32个数据准备就绪
+    std::vector<ImageDataPtr> thread_batch;
     
-    // 第一步：阻塞等待第一个图像
-    ImageDataPtr first_image;
-    input_queue_.wait_and_pop(first_image);
+    // 只有线程0负责收集32个完整批次
+    if (thread_id == 0) {
+      std::vector<ImageDataPtr> full_batch;
+      full_batch.reserve(BATCH_SIZE);
+      
+      // 阻塞收集32个图像数据
+      std::cout << "📥 [主收集线程] 开始收集32个图像数据..." << std::endl;
+      
+      for (size_t i = 0; i < BATCH_SIZE; ++i) {
+        ImageDataPtr image;
+        input_queue_.wait_and_pop(image);
+        
+        if (!image) {
+          if (!running_.load()) {
+            std::cout << "🔄 [主收集线程] 接收到停止信号，退出收集" << std::endl;
+            goto thread_exit;
+          }
+          continue;
+        }
+        full_batch.push_back(image);
+      }
+      
+      std::cout << "✅ [主收集线程] 成功收集32个图像数据，准备分发给 " << num_threads_ << " 个线程" << std::endl;
+      
+      // 分发数据给所有工作线程（包括自己）
+      {
+        std::lock_guard<std::mutex> lock(batch_mutex_);
+        current_batch_ = std::move(full_batch);
+        batch_ready_.store(true);
+        batch_processing_.store(true);
+        batch_completion_count_.store(0);
+      }
+      batch_cv_.notify_all();
+    }
     
-    // 检查停止信号
-    if (!first_image) {
+    // 所有线程等待批次数据准备就绪
+    {
+      std::unique_lock<std::mutex> lock(batch_mutex_);
+      batch_cv_.wait(lock, [this]() {
+        return batch_ready_.load() || !running_.load();
+      });
+      
       if (!running_.load()) {
         break;
       }
-      continue;
+      
+      // 计算当前线程应该处理的数据范围
+      size_t total_size = current_batch_.size();
+      size_t per_thread = total_size / num_threads_;
+      size_t remainder = total_size % num_threads_;
+      
+      size_t start_idx = thread_id * per_thread;
+      size_t end_idx = start_idx + per_thread;
+      
+      // 最后一个线程处理剩余的数据
+      if (thread_id == num_threads_ - 1) {
+        end_idx += remainder;
+      }
+      
+      // 复制当前线程需要处理的数据
+      thread_batch.clear();
+      for (size_t i = start_idx; i < end_idx; ++i) {
+        thread_batch.push_back(current_batch_[i]);
+      }
+      
+      std::cout << "🎯 [线程 " << thread_id << "] 分配到 " << thread_batch.size() 
+                << " 个图像 (索引 " << start_idx << "-" << (end_idx-1) << ")" << std::endl;
     }
     
-    batch_images.push_back(first_image);
+    // 第三步：处理分配的数据
+    if (!thread_batch.empty()) {
+      std::cout << "🔄 [线程 " << thread_id << "] 开始处理 " 
+                << thread_batch.size() << " 张图像" << std::endl;
+      
+      process_images_batch(thread_batch, thread_id);
+      
+      std::cout << "✅ [线程 " << thread_id << "] 处理完成 " 
+                << thread_batch.size() << " 张图像" << std::endl;
+    }
     
-    // 第二步：非阻塞方式收集剩余图像，带超时机制
-    ImageDataPtr image;
-    auto collection_start = std::chrono::high_resolution_clock::now();
-    const auto timeout_ms = std::chrono::milliseconds(10); // 10ms超时
-    
-    while (batch_images.size() < BATCH_SIZE && running_.load()) {
-      if (input_queue_.try_pop(image)) {
-        if (image) {
-          batch_images.push_back(image);
+    // 第四步：等待所有线程完成处理
+    {
+      std::lock_guard<std::mutex> lock(batch_mutex_);
+      int completed = batch_completion_count_.fetch_add(1) + 1;
+      
+      std::cout << "📊 [线程 " << thread_id << "] 完成处理，进度: " 
+                << completed << "/" << num_threads_ << std::endl;
+      
+      if (completed == num_threads_) {
+        // 所有线程都完成了，现在按帧序号排序并输出
+        std::cout << "🎉 所有线程处理完成，开始按帧序号排序输出..." << std::endl;
+        
+        // 按帧序号排序
+        std::sort(current_batch_.begin(), current_batch_.end(),
+                  [](const ImageDataPtr& a, const ImageDataPtr& b) {
+                    return a->frame_idx < b->frame_idx;
+                  });
+        
+        // 按顺序添加到输出队列
+        for (auto& image : current_batch_) {
+          ordered_output_push(image);
+          std::cout << "📤 [排序输出] 帧序号: " << image->frame_idx << std::endl;
         }
-      } else {
-        // 检查是否超时
-        auto now = std::chrono::high_resolution_clock::now();
-        if (now - collection_start > timeout_ms) {
-          std::cout << "⏱️ [线程 " << thread_id << "] 批量收集超时，当前批次: " 
-                    << batch_images.size() << std::endl;
-          break;
-        }
-        // 短暂休眠，避免占用过多CPU
-        std::this_thread::sleep_for(std::chrono::microseconds(100));
+        
+        // 重置批次状态
+        current_batch_.clear();
+        batch_ready_.store(false);
+        batch_processing_.store(false);
+        
+        std::cout << "✅ 32个图像批次处理完成并输出，准备下一批次" << std::endl;
       }
     }
-    
-    std::cout << "🔄 [线程 " << thread_id << "] 开始批量处理 " 
-              << batch_images.size() << " 张图像" << std::endl;
-    
-    // 第三步：批量处理
-    process_images_batch(batch_images, thread_id);
-    
-    // 第四步：将所有处理结果添加到顺序缓冲区
-    for (auto& processed_image : batch_images) {
-      ordered_output_push(processed_image);
-    }
-    
-    std::cout << "✅ [线程 " << thread_id << "] 批量处理完成，输出 " 
-              << batch_images.size() << " 张图像" << std::endl;
+    batch_cv_.notify_all();
   }
   
-  std::cout << "🔄 " << processor_name_ << "批量工作线程 " << thread_id << " 退出"
+thread_exit:
+  std::cout << "🔄 " << processor_name_ << "工作线程 " << thread_id << " 退出"
             << std::endl;
 }
 
@@ -210,7 +296,7 @@ void SemanticSegmentation::ordered_output_push(ImageDataPtr image) {
   order_cv_.notify_one();
 }
 
-// 顺序输出线程函数
+// 顺序输出线程函数（简化版，因为数据已经在工作线程中排序）
 void SemanticSegmentation::ordered_output_thread_func() {
   std::cout << "🔄 语义分割顺序输出线程启动" << std::endl;
   
@@ -222,7 +308,7 @@ void SemanticSegmentation::ordered_output_thread_func() {
       return !ordered_buffer_.empty() || !order_thread_running_.load();
     });
     
-    // 按顺序输出连续的帧
+    // 按顺序输出连续的帧（数据已经是有序的）
     while (!ordered_buffer_.empty()) {
       auto it = ordered_buffer_.find(next_expected_frame_.load());
       if (it != ordered_buffer_.end()) {
@@ -235,42 +321,7 @@ void SemanticSegmentation::ordered_output_thread_func() {
         // 推送到实际的输出队列
         output_queue_.push(image);
         
-        // 更新输出监控记录
-        // {
-        //   std::lock_guard<std::mutex> monitor_lock(output_monitor_mutex_);
-        //   recent_output_frames_.push_back(frame_idx);
-        //   if (recent_output_frames_.size() > OUTPUT_WINDOW_SIZE) {
-        //     recent_output_frames_.pop_front();
-        //   }
-          
-        //   // 打印最近10个输出帧序号用于人工核验
-        //   std::cout << "📤 [语义分割输出] 当前帧: " << frame_idx << ", 最近10个输出帧序号: [";
-        //   for (size_t i = 0; i < recent_output_frames_.size(); ++i) {
-        //     std::cout << recent_output_frames_[i];
-        //     if (i < recent_output_frames_.size() - 1) {
-        //       std::cout << ", ";
-        //     }
-        //   }
-        //   std::cout << "]";
-          
-        //   // 检查是否有乱序
-        //   bool is_ordered = true;
-        //   if (recent_output_frames_.size() > 1) {
-        //     for (size_t i = 1; i < recent_output_frames_.size(); ++i) {
-        //       if (recent_output_frames_[i] <= recent_output_frames_[i-1]) {
-        //         is_ordered = false;
-        //         break;
-        //       }
-        //     }
-        //   }
-          
-        //   if (!is_ordered) {
-        //     std::cout << " ⚠️ 检测到输出乱序！";
-        //   } else {
-        //     std::cout << " ✅ 输出有序";
-        //   }
-        //   std::cout << std::endl;
-        // }
+        std::cout << "📤 [顺序输出] 帧序号: " << frame_idx << " 已输出" << std::endl;
         
         // 更新下一个期望的帧序号
         next_expected_frame_.fetch_add(1);

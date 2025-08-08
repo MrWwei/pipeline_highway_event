@@ -274,7 +274,7 @@ void PipelineManager::print_status() const {
   // 语义分割阶段
   if (config_.enable_segmentation && semantic_seg_) {
     std::cout << "│ 🎨 语义分割          │ 🟢启用 │ "
-              << std::setw(3) << semantic_seg_->get_queue_size() << "/128     │ "
+              << std::setw(3) << semantic_seg_->get_queue_size() << "/ 32     │ "
               << std::setw(3) << semantic_seg_->get_output_queue_size() << "/128     │ "
               << std::setw(3) << semantic_seg_->get_thread_count() << "       │" << std::endl;
   } else {
@@ -345,8 +345,8 @@ void PipelineManager::print_status() const {
     size_t seg_input_size = semantic_seg_->get_queue_size();
     size_t seg_output_size = semantic_seg_->get_output_queue_size();
     
-    size_t seg_input_capacity = 128; // 无锁环形队列，向上取2的幂次方
-    size_t seg_output_capacity = 128;
+    size_t seg_input_capacity = 32; // 语义分割输入队列固定为32
+    size_t seg_output_capacity = 128; // 输出队列容量为128
     
     double seg_input_usage = seg_input_capacity > 0 ? (double)seg_input_size / seg_input_capacity * 100.0 : 0.0;
     double seg_output_usage = seg_output_capacity > 0 ? (double)seg_output_size / seg_output_capacity * 100.0 : 0.0;

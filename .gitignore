@@ -6,3 +6,4 @@ outs
 seg_model
 segmentation_results
 seg_results
+mask_outs

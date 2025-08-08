@@ -88,6 +88,14 @@ private:
   std::thread ordered_output_thread_;               // 顺序输出线程
   std::atomic<bool> order_thread_running_;          // 顺序输出线程运行标志
   
+  // 批量处理相关成员
+  std::atomic<bool> batch_ready_;                   // 批次准备标志
+  std::atomic<bool> batch_processing_;              // 批次处理中标志
+  std::mutex batch_mutex_;                          // 批次处理互斥锁
+  std::condition_variable batch_cv_;                // 批次处理条件变量
+  std::vector<ImageDataPtr> current_batch_;         // 当前批次数据
+  std::atomic<int> batch_completion_count_;         // 批次完成计数器
+  
   // 输出顺序监控
   std::deque<int64_t> recent_output_frames_;        // 最近输出的帧序号（用于人工核验）
   static const size_t OUTPUT_WINDOW_SIZE = 10;     // 输出监控窗口大小

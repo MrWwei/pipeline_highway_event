@@ -116,6 +116,8 @@ ProcessResult HighwayEventDetectorImpl::convert_to_process_result(ImageDataPtr i
     //     cv::imwrite("mask_outs/output_" + std::to_string(result.frame_id) + ".jpg", mask);
     // }
     
+    // cv::Mat mask = cv::Mat(image_data->mask_height, image_data->mask_width, CV_8UC1, image_data->label_map.data());
+    // cv::imwrite("mask_outs/output_" + std::to_string(result.frame_id) + ".png", mask*255);
     // 转换检测结果
     result.detections.reserve(image_data->track_results.size());
     for (const auto& box : image_data->track_results) {
