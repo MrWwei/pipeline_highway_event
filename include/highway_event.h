@@ -5,7 +5,7 @@
 #include <cstdint>
 #include "box_event.h"
 #include "image_data.h"
-#include "pipeline_manager.h"
+#include "batch_pipeline_manager.h"
 #include <string>
 #include <atomic>
 #include <mutex>

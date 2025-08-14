@@ -59,6 +59,15 @@ set(SOURCES
     src/pipeline_manager.cpp
     src/image_data.cpp
     src/event_utils.cc
+    src/thread_pool.cpp
+    # 新增批次处理模块
+    src/batch_data.cpp
+    src/batch_semantic_segmentation.cpp
+    src/batch_mask_postprocess.cpp
+    src/batch_object_detection.cpp
+    src/batch_object_tracking.cpp
+    src/batch_event_determine.cpp
+    src/batch_pipeline_manager.cpp
 )
 aux_source_directory(${PROJECT_SOURCE_DIR}/src SRC_DIR)
 file(GLOB_RECURSE cuda_srcs ${PROJECT_SOURCE_DIR}/src/process_mask.cu  )

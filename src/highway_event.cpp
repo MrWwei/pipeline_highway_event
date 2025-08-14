@@ -1,6 +1,6 @@
 #include "highway_event.h"
 #include "image_data.h"
-#include "pipeline_manager.h"
+#include "batch_pipeline_manager.h"
 #include <chrono>
 #include <iostream>
 #include <mutex>
@@ -34,7 +34,7 @@ public:
 
 private:
     // 成员变量
-    std::unique_ptr<PipelineManager> pipeline_manager_;
+    std::unique_ptr<BatchPipelineManager> pipeline_manager_;
     HighwayEventConfig config_;
     std::atomic<bool> is_initialized_{false};
     std::atomic<bool> is_running_{false};
@@ -71,8 +71,8 @@ void HighwayEventDetectorImpl::result_processing_thread() {
     while (result_thread_running_.load()) {
         ImageDataPtr result;
         
-        // 从流水线获取完成的结果
-        if (pipeline_manager_->get_final_result(result)) {
+        // 从批次流水线获取完成的结果
+        if (pipeline_manager_->get_result_image(result)) {
             {
                 std::unique_lock<std::mutex> lock(result_mutex_);
                 
@@ -110,12 +110,14 @@ ProcessResult HighwayEventDetectorImpl::convert_to_process_result(ImageDataPtr i
     result.roi = image_data->roi;
     // result.srcImage = image_data->imageMat.clone();
     // cv::Mat image_src = image_data->imageMat;
+    // cv::Mat crop_image = image_src(image_data->roi);
+    // cv::imwrite("src_outs/output_" + std::to_string(result.frame_id) + ".jpg", crop_image);
     // cv::imwrite("src_outs/output_" + std::to_string(result.frame_id) + ".jpg", image_src);
     // if(!image_data->mask.empty()) {
         // result.mask = image_data->mask.clone(); // 直接使用clone避免共享内存问题
     //     cv::imwrite("mask_outs/output_" + std::to_string(result.frame_id) + ".jpg", mask);
     // }
-    
+    // result.mask = image_data->mask.clone(); // 直接使用clone避免共享内存问题
     // cv::Mat mask = cv::Mat(image_data->mask_height, image_data->mask_width, CV_8UC1, image_data->label_map.data());
     // cv::imwrite("mask_outs/output_" + std::to_string(result.frame_id) + ".png", mask*255);
     // 转换检测结果
@@ -145,18 +147,18 @@ ProcessResult HighwayEventDetectorImpl::convert_to_process_result(ImageDataPtr i
     
         result.detections.push_back(det_box);
         // cv::Scalar color = box.is_still ? cv::Scalar(0, 0, 255) : cv::Scalar(0, 255, 0);
-        // cv::rectangle(image_src, 
+        // cv::rectangle(image_data->imageMat, 
         //             cv::Point(box.left, box.top), 
         //             cv::Point(box.right, box.bottom), 
         //             color);
-        // cv::putText(image_src, 
+        // cv::putText(image_data->imageMat, 
         //           std::to_string(box.track_id), 
-        //           cv::Point(box.left, box.top - 5), 
+        //           cv::Point(box.left , box.top - 5 ), 
         //           cv::FONT_HERSHEY_SIMPLEX, 
         //           0.5,
         //           color, 1);
     }
-    // cv::imwrite("track_outs/output_" + std::to_string(result.frame_id) + ".jpg", image_src);
+    // cv::imwrite("track_outs/output_" + std::to_string(result.frame_id) + ".jpg", image_data->imageMat);
     // for (const auto& box : image_data->detection_results) {
     //     DetectionBox det_box;
     //     det_box.left = box.left;
@@ -229,16 +231,9 @@ bool HighwayEventDetectorImpl::initialize(const HighwayEventConfig& config) {
         pipeline_config.pedestrian_det_model_path = config.pedestrian_det_model_path;
         pipeline_config.enable_seg_show = config.enable_seg_show;
         pipeline_config.seg_show_image_path = config.seg_show_image_path;
-        pipeline_config.det_algor_name = config.det_algor_name;
-        pipeline_config.det_img_size = config.det_img_size;
         pipeline_config.det_conf_thresh = config.det_conf_thresh;
         pipeline_config.det_iou_thresh = config.det_iou_thresh;
-        pipeline_config.det_max_batch_size = config.det_max_batch_size;
-        pipeline_config.det_min_opt = config.det_min_opt;
-        pipeline_config.det_mid_opt = config.det_mid_opt;
-        pipeline_config.det_max_opt = config.det_max_opt;
-        pipeline_config.det_is_ultralytics = config.det_is_ultralytics;
-        pipeline_config.det_gpu_id = config.det_gpu_id;
+        pipeline_config.enable_pedestrian_detect = config.enable_pedestrian_detect;
         pipeline_config.event_determine_top_fraction = config.box_filter_top_fraction;
         pipeline_config.event_determine_bottom_fraction = config.box_filter_bottom_fraction;
         pipeline_config.final_result_queue_capacity = config.result_queue_capacity;
@@ -247,8 +242,8 @@ bool HighwayEventDetectorImpl::initialize(const HighwayEventConfig& config) {
         pipeline_config.lane_show_image_path = config.lane_show_image_path;
 
         
-        // 创建流水线管理器（但不启动）
-        pipeline_manager_ = std::make_unique<PipelineManager>(pipeline_config);
+        // 创建批次流水线管理器（但不启动）
+        pipeline_manager_ = std::make_unique<BatchPipelineManager>(pipeline_config);
         
         is_initialized_.store(true);
         
@@ -268,18 +263,10 @@ bool HighwayEventDetectorImpl::change_params(const HighwayEventConfig& config) {
     
     // 更新配置
     config_ = config;
-    PipelineConfig pipeline_config;
-    pipeline_config.enable_seg_show = config.enable_seg_show;
-    pipeline_config.enable_lane_show = config.enable_lane_show;
-    pipeline_config.seg_show_image_path = config.seg_show_image_path;
-    pipeline_config.lane_show_image_path = config.lane_show_image_path;
-    pipeline_config.times_car_width = config.times_car_width; // 车宽倍数
-    pipeline_config.event_determine_top_fraction = config.box_filter_top_fraction;
-    pipeline_config.event_determine_bottom_fraction = config.box_filter_bottom_fraction;
-    pipeline_manager_->change_params(pipeline_config);
     
-    // 这里可以添加更多的参数更新逻辑
-    // 例如，更新流水线管理器的配置等
+    // 注意：BatchPipelineManager可能不支持运行时参数更改
+    // 这里只更新内部配置，如需完整支持，可能需要重启流水线
+    std::cout << "⚠️ 批次流水线的参数更改支持有限，某些参数可能需要重启才能生效" << std::endl;
     
     return true;
 }
@@ -484,10 +471,10 @@ const HighwayEventConfig& HighwayEventDetectorImpl::get_config() const {
 
 std::string HighwayEventDetectorImpl::get_pipeline_status() const {
     if (!pipeline_manager_) {
-        return "流水线未初始化";
+        return "批次流水线未初始化";
     }
     
-    // 使用 PipelineManager::print_status() 来实时监控队列
+    // 使用 BatchPipelineManager::print_status() 来实时监控状态
     pipeline_manager_->print_status();
     
     // 返回简化的状态信息
@@ -496,6 +483,11 @@ std::string HighwayEventDetectorImpl::get_pipeline_status() const {
     
     std::lock_guard<std::mutex> lock(result_mutex_);
     oss << ", 结果缓存: " << completed_results_.size() << "/" << MAX_COMPLETED_RESULTS << " 帧";
+    
+    // 获取批次流水线统计信息
+    auto stats = pipeline_manager_->get_statistics();
+    oss << ", 吞吐量: " << std::fixed << std::setprecision(2) << stats.throughput_images_per_second << " FPS";
+    oss << ", 处理批次数: " << stats.total_batches_processed;
     
     return oss.str();
 }
