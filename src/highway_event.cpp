@@ -144,9 +144,14 @@ ProcessResult HighwayEventDetectorImpl::convert_to_process_result(ImageDataPtr i
             det_box.status = ObjectStatus::PARKING_LANE; // 非静止状态且非违停视为正常状态
             }
         }
-    
+        // cv::Scalar color = cv::Scalar(0, 255, 0); // 默认绿色
+        // if(det_box.status == ObjectStatus::OCCUPY_EMERGENCY_LANE) {
+        //     color = cv::Scalar(0, 0, 255); // 红色
+           
+        // }
         result.detections.push_back(det_box);
         // cv::Scalar color = box.is_still ? cv::Scalar(0, 0, 255) : cv::Scalar(0, 255, 0);
+
         // cv::rectangle(image_data->imageMat, 
         //             cv::Point(box.left, box.top), 
         //             cv::Point(box.right, box.bottom), 

@@ -68,6 +68,8 @@ set(SOURCES
     src/batch_object_tracking.cpp
     src/batch_event_determine.cpp
     src/batch_pipeline_manager.cpp
+    # 内存监控模块
+    src/memory_monitor.cpp
 )
 aux_source_directory(${PROJECT_SOURCE_DIR}/src SRC_DIR)
 file(GLOB_RECURSE cuda_srcs ${PROJECT_SOURCE_DIR}/src/process_mask.cu  )

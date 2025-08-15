@@ -115,6 +115,23 @@ bool BatchBuffer::get_ready_batch(BatchPtr& batch) {
     return false;
 }
 
+bool BatchBuffer::try_get_ready_batch(BatchPtr& batch) {
+    std::unique_lock<std::mutex> lock(ready_mutex_);
+    
+    if (!ready_batches_.empty()) {
+        batch = ready_batches_.front();
+        ready_batches_.pop();
+        
+        // 通知等待的add_image线程
+        lock.unlock();
+        ready_cv_.notify_one();
+        
+        return true;
+    }
+    
+    return false;
+}
+
 void BatchBuffer::flush_current_batch() {
     std::lock_guard<std::mutex> lock(collect_mutex_);
     
@@ -168,6 +185,7 @@ void BatchBuffer::flush_thread_func() {
                     std::cout << "⏰ 超时刷新批次 " << current_collecting_batch_->batch_id 
                               << "，包含 " << current_collecting_batch_->actual_size 
                               << " 个图像，等待时间: " << elapsed.count() << "ms" << std::endl;
+                    std::cout << "规定超时时间是 " << flush_timeout_.count() << " ms" << std::endl;
                     move_batch_to_ready(current_collecting_batch_);
                     current_collecting_batch_ = nullptr;
                 }
@@ -259,6 +277,23 @@ bool BatchConnector::receive_batch(BatchPtr& batch) {
     if (!running_.load() && batch_queue_.empty()) {
         return false;
     }
+    
+    if (!batch_queue_.empty()) {
+        batch = batch_queue_.front();
+        batch_queue_.pop();
+        total_received_.fetch_add(1);
+        
+        lock.unlock();
+        queue_cv_.notify_one(); // 通知可能等待发送的线程
+        
+        return true;
+    }
+    
+    return false;
+}
+
+bool BatchConnector::try_receive_batch(BatchPtr& batch) {
+    std::unique_lock<std::mutex> lock(queue_mutex_);
     
     if (!batch_queue_.empty()) {
         batch = batch_queue_.front();

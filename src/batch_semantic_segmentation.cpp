@@ -316,20 +316,7 @@ bool BatchSemanticSegmentation::inference_batch(BatchPtr batch) {
 }
 
 void BatchSemanticSegmentation::postprocess_batch(BatchPtr batch) {
-    std::cout << "🔧 批次 " << batch->batch_id << " 开始后处理..." << std::endl;
     
-    // 并行后处理所有图像
-    // std::for_each(std::execution::par_unseq,
-    //               batch->images.begin(),
-    //               batch->images.begin() + batch->actual_size,
-    //               [this](ImageDataPtr& image) {
-    //                   // 保存分割结果（如果启用）
-    //                   if (enable_seg_show_ && (image->frame_idx % seg_show_interval_ == 0)) {
-    //                       save_segmentation_result(image);
-    //                   }
-    //               });
-    
-    std::cout << "✅ 批次 " << batch->batch_id << " 后处理完成" << std::endl;
 }
 
 void BatchSemanticSegmentation::preprocess_image(ImageDataPtr image, int thread_id) {

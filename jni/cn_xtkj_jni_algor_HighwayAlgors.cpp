@@ -145,12 +145,30 @@ HighwayEventConfig get_config_from_param(JNIEnv* env, jobject param) {
     
     // 设置默认线程配置（可以根据需要调整）
     config.semantic_threads = 1;
-    config.mask_threads = 1;
+    config.mask_threads = 8;
     config.detection_threads = 1;
     config.tracking_threads = 1;
     config.filter_threads = 1;
-    config.enable_debug_log = true;
-    
+    config.result_queue_capacity = 50; // 适合流式处理的队列大小
+    config.enable_debug_log = false;
+    config.enable_segmentation = true; // 关闭语义分割
+    config.enable_mask_postprocess = true; // 关闭mask后处理
+    config.enable_detection = true;
+    config.enable_tracking = true; // 关闭目标跟踪模块
+    config.enable_event_determine = true;   // 关闭事件判定
+
+    config.seg_model_path = "ppseg_model.onnx"; // 语义分割模型路径
+    config.car_det_model_path = "car_detect.onnx"; // 车辆检测模型路径
+    config.pedestrian_det_model_path = "Pedestrain_TAG1_yl_S640_V1.2.onnx"; // 行人检测模型路径
+
+    config.enable_seg_show = false;
+    config.seg_show_image_path = "./segmentation_results/"; // 分割结果图像保存路径
+    config.get_timeout_ms = 100000; // 阻塞处理使用较长超时
+
+    // config.times_car_width = 1.2f; // 车宽倍数
+    config.enable_lane_show = true; // 关闭车道线可视化
+    config.lane_show_image_path = "./lane_results/"; // 车道线结果
+    config.enable_pedestrian_detect = false;
     env->DeleteLocalRef(paramClass);
     return config;
 }
@@ -467,6 +485,7 @@ JNIEXPORT jlong JNICALL Java_cn_xtkj_jni_algor_HighwayAlgors_putMat
     
     // 先获取图像数据，避免在持锁时进行JNI操作
     cv::Mat image = get_mat_from_matref(env, matRef);
+    
     if (image.empty()) {
         std::cerr << "❌ 获取图像数据失败" << std::endl;
         return -1;
@@ -490,14 +509,13 @@ JNIEXPORT jlong JNICALL Java_cn_xtkj_jni_algor_HighwayAlgors_putMat
         
         // 添加图像到检测器
         int64_t frame_id = detector->add_frame(std::move(image));
-
+       
         
         if (frame_id < 0) {
             std::cerr << "❌ 添加图像到检测器失败" << std::endl;
             return -1;
         }
-        
-        return static_cast<jlong>(frame_id); // 返回帧ID
+          return static_cast<jlong>(frame_id); // 返回帧ID
         
     } catch (const std::exception& e) {
         std::cerr << "❌ 添加图像时发生异常: " << e.what() << std::endl;

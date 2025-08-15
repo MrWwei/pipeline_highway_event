@@ -113,6 +113,9 @@ public:
     // 获取就绪的批次
     bool get_ready_batch(BatchPtr& batch);
     
+    // 非阻塞获取就绪的批次
+    bool try_get_ready_batch(BatchPtr& batch);
+    
     // 强制刷新当前收集的批次
     void flush_current_batch();
     
@@ -198,6 +201,9 @@ public:
     
     // 从连接器接收批次
     bool receive_batch(BatchPtr& batch);
+    
+    // 非阻塞方式从连接器接收批次
+    bool try_receive_batch(BatchPtr& batch);
     
     // 获取队列状态
     size_t get_queue_size() const;

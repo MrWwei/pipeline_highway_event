@@ -7,6 +7,7 @@
 #include "batch_object_tracking.h"
 #include "batch_event_determine.h"
 #include "pipeline_config.h"
+#include "memory_monitor.h"
 #include <memory>
 #include <thread>
 #include <atomic>
@@ -52,6 +53,14 @@ public:
     };
     
     Statistics get_statistics() const;
+    
+    // 内存监控相关方法
+    void start_memory_monitoring();
+    void stop_memory_monitoring();
+    void print_memory_report();
+    bool is_memory_leak_detected();
+    void set_memory_leak_threshold(double threshold_mb_per_min);
+    MemoryStats get_current_memory_stats();
 
 private:
     // 配置
@@ -97,9 +106,14 @@ private:
     std::atomic<uint64_t> total_images_output_{0};
     std::chrono::high_resolution_clock::time_point start_time_;
     
-    // 状态监控线程
+        // 状态监控线程
     std::thread status_monitor_thread_;
-    std::chrono::milliseconds status_print_interval_;
+    std::chrono::seconds status_print_interval_;
+    
+    // 内存监控器
+    std::unique_ptr<MemoryMonitor> memory_monitor_;
+    
+    // 初始化和清理方法
     
     // 协调线程函数
     void seg_coordinator_func();      // 语义分割协调

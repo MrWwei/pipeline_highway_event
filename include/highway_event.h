@@ -25,7 +25,7 @@ struct HighwayEventConfig {
     int filter_threads = 1;                // 目标框筛选线程数
     
     // === 模型配置 ===
-    std::string seg_model_path = "seg_model";               // 语义分割模型路径
+    std::string seg_model_path = "ppseg_model.onnx";               // 语义分割模型路径
     std::string car_det_model_path = "car_detect.onnx";         // 目标检测模型路径
     std::string pedestrian_det_model_path = "Pedestrain_TAG1_yl_S640_V1.2.onnx"; // 行人检测模型路径
     

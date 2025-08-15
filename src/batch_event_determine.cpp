@@ -6,31 +6,21 @@
 #include <cmath>
 
 BatchEventDetermine::BatchEventDetermine(int num_threads, const PipelineConfig* config)
-    : num_threads_(num_threads), running_(false), stop_requested_(false),
-      normal_direction_(1.0f, 0.0f) { // 默认水平向右为正常方向
+    : num_threads_(num_threads), running_(false), stop_requested_(false) { // 默认水平向右为正常方向
     
     // 初始化配置
     if (config) {
         config_ = *config;
-        
-        // // 更新事件检测参数
-        // if (config->illegal_parking_frames_threshold > 0) {
-        //     event_params_.illegal_parking_frames_threshold = config->illegal_parking_frames_threshold;
-        // }
-        // if (config->abnormal_stay_frames_threshold > 0) {
-        //     event_params_.abnormal_stay_frames_threshold = config->abnormal_stay_frames_threshold;
-        // }
-        // if (config->speed_limit_kmh > 0) {
-        //     event_params_.speed_limit_kmh = config->speed_limit_kmh;
-        // }
+        top_fraction_ = config->event_determine_top_fraction;
+        bottom_fraction_ = config->event_determine_bottom_fraction;
+        times_car_width_ = config->times_car_width;
+        lane_show_image_path_ = config->lane_show_image_path;
     }
     
     // 创建输入输出连接器
     input_connector_ = std::make_unique<BatchConnector>(10);
     output_connector_ = std::make_unique<BatchConnector>(10);
     
-    // 初始化检测区域
-    initialize_detection_zones();
 }
 
 BatchEventDetermine::~BatchEventDetermine() {
@@ -114,16 +104,14 @@ bool BatchEventDetermine::process_batch(BatchPtr batch) {
         // 使用批次处理锁确保事件数据一致性
         std::lock_guard<std::mutex> batch_lock(batch_processing_mutex_);
         
-        // 逐帧处理事件检测
-        for (size_t i = 0; i < batch->actual_size; ++i) {
-            process_image_events(batch->images[i]);
+        for(auto & image : batch->images) {
+            if (!image) {
+                continue;
+            }
+            // 执行事件判定
+            perform_event_determination(image);
+            
         }
-        
-        // 批次级事件分析
-        analyze_batch_events(batch);
-        
-        // 事件筛选和去重
-        filter_and_deduplicate_events(batch);
         
         // 标记批次完成
         batch->event_completed.store(true);
@@ -180,272 +168,6 @@ void BatchEventDetermine::worker_thread_func() {
     }
 }
 
-void BatchEventDetermine::process_image_events(ImageDataPtr image) {
-    if (!image || image->track_results.empty()) {
-        return;
-    }
-    
-    // 更新轨迹历史
-    for (const auto& track_result : image->track_results) {
-        update_trajectory_history(track_result, image->frame_idx);
-        
-        // 检测各种事件
-        bool illegal_parking = detect_illegal_parking(track_result, image->frame_idx);
-        bool abnormal_stay = detect_abnormal_stay(track_result, image->frame_idx);
-        
-        // 获取轨迹用于方向和速度分析
-        std::vector<cv::Point> trajectory = get_trajectory_points(track_result.track_id);
-        if (trajectory.size() >= event_params_.min_trajectory_points) {
-            bool wrong_direction = detect_wrong_direction(trajectory);
-            bool speed_violation = detect_speed_violation(trajectory, 1.0); // 1秒时间窗口
-            
-            // 记录事件（这里需要根据实际需求添加事件存储逻辑）
-            if (illegal_parking || abnormal_stay || wrong_direction || speed_violation) {
-                std::cout << "⚠️ 检测到事件 - 帧:" << image->frame_idx 
-                          << ", 轨迹ID:" << track_result.track_id;
-                if (illegal_parking) std::cout << " [违停]";
-                if (abnormal_stay) std::cout << " [异常停留]";
-                if (wrong_direction) std::cout << " [逆行]";
-                if (speed_violation) std::cout << " [超速]";
-                std::cout << std::endl;
-            }
-        }
-    }
-}
-
-void BatchEventDetermine::analyze_batch_events(BatchPtr batch) {
-    // 批次级事件分析，例如：
-    // 1. 跨帧事件连续性分析
-    // 2. 批次内事件模式识别
-    // 3. 事件严重程度评估
-    
-    std::map<int, std::vector<size_t>> track_appearances;
-    
-    // 收集批次内每个轨迹的出现情况
-    for (size_t i = 0; i < batch->actual_size; ++i) {
-        for (const auto& track_result : batch->images[i]->track_results) {
-            track_appearances[track_result.track_id].push_back(i);
-        }
-    }
-    
-    // 分析持续性事件
-    for (const auto& [track_id, frame_indices] : track_appearances) {
-        if (frame_indices.size() > 5) { // 在批次中出现超过5帧
-            std::cout << "🔍 轨迹 " << track_id << " 在批次 " << batch->batch_id 
-                      << " 中持续出现 " << frame_indices.size() << " 帧" << std::endl;
-        }
-    }
-}
-
-void BatchEventDetermine::filter_and_deduplicate_events(BatchPtr batch) {
-    // 事件筛选和去重逻辑
-    // 1. 移除重复的短时事件
-    // 2. 合并连续的同类事件
-    // 3. 过滤置信度低的事件
-    
-    // 这里可以添加具体的筛选逻辑
-}
-
-bool BatchEventDetermine::detect_illegal_parking(const ImageData::BoundingBox& track_result, uint64_t frame_idx) {
-    std::lock_guard<std::mutex> lock(trajectory_mutex_);
-    
-    int track_id = track_result.track_id;
-    if (trajectory_histories_.find(track_id) == trajectory_histories_.end()) {
-        return false;
-    }
-    
-    auto& history = trajectory_histories_[track_id];
-    
-    // 如果已经检测到违停事件，避免重复报告
-    if (history.has_illegal_parking_event) {
-        return false;
-    }
-    
-    // 检查目标是否在违停区域
-    cv::Point center = get_bounding_box_center(track_result);
-    bool in_illegal_zone = false;
-    
-    for (const auto& zone : illegal_parking_zones_) {
-        if (point_in_polygon(center, zone)) {
-            in_illegal_zone = true;
-            break;
-        }
-    }
-    
-    if (!in_illegal_zone) {
-        return false;
-    }
-    
-    // 检查停留时间
-    uint64_t stay_frames = frame_idx - history.first_appearance + 1;
-    if (stay_frames >= event_params_.illegal_parking_frames_threshold) {
-        history.has_illegal_parking_event = true;
-        return true;
-    }
-    
-    return false;
-}
-
-bool BatchEventDetermine::detect_wrong_direction(const std::vector<cv::Point>& trajectory) {
-    if (trajectory.size() < event_params_.min_trajectory_points) {
-        return false;
-    }
-    
-    // 计算轨迹方向向量
-    cv::Point start = trajectory.front();
-    cv::Point end = trajectory.back();
-    cv::Point2f trajectory_direction(end.x - start.x, end.y - start.y);
-    
-    // 归一化
-    float length = std::sqrt(trajectory_direction.x * trajectory_direction.x + 
-                           trajectory_direction.y * trajectory_direction.y);
-    if (length < 1.0f) return false; // 移动距离太小
-    
-    trajectory_direction.x /= length;
-    trajectory_direction.y /= length;
-    
-    // 计算与正常方向的角度差
-    double angle_diff = calculate_angle_difference(trajectory_direction, normal_direction_);
-    
-    return angle_diff > event_params_.wrong_direction_angle_threshold;
-}
-
-bool BatchEventDetermine::detect_abnormal_stay(const ImageData::BoundingBox& track_result, uint64_t frame_idx) {
-    std::lock_guard<std::mutex> lock(trajectory_mutex_);
-    
-    int track_id = track_result.track_id;
-    if (trajectory_histories_.find(track_id) == trajectory_histories_.end()) {
-        return false;
-    }
-    
-    auto& history = trajectory_histories_[track_id];
-    
-    // 如果已经检测到异常停留事件，避免重复报告
-    if (history.has_abnormal_stay_event) {
-        return false;
-    }
-    
-    // 检查停留时间
-    uint64_t stay_frames = frame_idx - history.first_appearance + 1;
-    if (stay_frames < event_params_.abnormal_stay_frames_threshold) {
-        return false;
-    }
-    
-    // 检查移动距离
-    if (history.points.size() >= 2) {
-        cv::Point first_point = history.points.front();
-        cv::Point last_point = history.points.back();
-        double distance = std::sqrt(std::pow(last_point.x - first_point.x, 2) + 
-                                  std::pow(last_point.y - first_point.y, 2));
-        
-        if (distance < event_params_.movement_threshold) {
-            history.has_abnormal_stay_event = true;
-            return true;
-        }
-    }
-    
-    return false;
-}
-
-bool BatchEventDetermine::detect_speed_violation(const std::vector<cv::Point>& trajectory, double time_span) {
-    if (trajectory.size() < 2) {
-        return false;
-    }
-    
-    double speed = calculate_speed(trajectory, time_span);
-    return speed > event_params_.speed_limit_kmh;
-}
-
-void BatchEventDetermine::update_trajectory_history(const ImageData::BoundingBox& track_result, uint64_t frame_idx) {
-    std::lock_guard<std::mutex> lock(trajectory_mutex_);
-    
-    int track_id = track_result.track_id;
-    cv::Point center = get_bounding_box_center(track_result);
-    
-    if (trajectory_histories_.find(track_id) == trajectory_histories_.end()) {
-        // 创建新的轨迹历史
-        TrajectoryHistory new_history;
-        new_history.first_appearance = frame_idx;
-        new_history.last_update = frame_idx;
-        new_history.points.push_back(center);
-        new_history.frame_indices.push_back(frame_idx);
-        
-        trajectory_histories_[track_id] = new_history;
-    } else {
-        // 更新现有轨迹历史
-        auto& history = trajectory_histories_[track_id];
-        history.last_update = frame_idx;
-        history.points.push_back(center);
-        history.frame_indices.push_back(frame_idx);
-        
-        // 限制历史长度，避免内存过度使用
-        const size_t max_history_length = 1000;
-        if (history.points.size() > max_history_length) {
-            history.points.erase(history.points.begin());
-            history.frame_indices.erase(history.frame_indices.begin());
-        }
-    }
-}
-
-std::vector<cv::Point> BatchEventDetermine::get_trajectory_points(int track_id) {
-    std::lock_guard<std::mutex> lock(trajectory_mutex_);
-    
-    if (trajectory_histories_.find(track_id) != trajectory_histories_.end()) {
-        return trajectory_histories_[track_id].points;
-    }
-    
-    return {};
-}
-
-double BatchEventDetermine::calculate_speed(const std::vector<cv::Point>& trajectory, double time_span) {
-    if (trajectory.size() < 2 || time_span <= 0) {
-        return 0.0;
-    }
-    
-    cv::Point start = trajectory.front();
-    cv::Point end = trajectory.back();
-    
-    double distance_pixels = std::sqrt(std::pow(end.x - start.x, 2) + std::pow(end.y - start.y, 2));
-    double distance_meters = distance_pixels / event_params_.pixels_per_meter;
-    double speed_ms = distance_meters / time_span;
-    double speed_kmh = speed_ms * 3.6; // 转换为km/h
-    
-    return speed_kmh;
-}
-
-bool BatchEventDetermine::point_in_polygon(const cv::Point& point, const std::vector<cv::Point>& polygon) {
-    return cv::pointPolygonTest(polygon, point, false) >= 0;
-}
-
-double BatchEventDetermine::calculate_angle_difference(const cv::Point2f& dir1, const cv::Point2f& dir2) {
-    double dot_product = dir1.x * dir2.x + dir1.y * dir2.y;
-    double angle_radians = std::acos(std::clamp(dot_product, -1.0, 1.0));
-    return angle_radians * 180.0 / CV_PI;
-}
-
-cv::Point BatchEventDetermine::get_bounding_box_center(const ImageData::BoundingBox& box) {
-    return cv::Point((box.left + box.right) / 2, (box.top + box.bottom) / 2);
-}
-
-void BatchEventDetermine::initialize_detection_zones() {
-    // 初始化违停检测区域（示例）
-    // 实际使用时应该从配置文件加载
-    
-    std::vector<cv::Point> zone1 = {
-        cv::Point(100, 100), cv::Point(300, 100), 
-        cv::Point(300, 200), cv::Point(100, 200)
-    };
-    illegal_parking_zones_.push_back(zone1);
-    
-    std::vector<cv::Point> zone2 = {
-        cv::Point(500, 300), cv::Point(700, 300),
-        cv::Point(700, 400), cv::Point(500, 400)
-    };
-    illegal_parking_zones_.push_back(zone2);
-    
-    std::cout << "✅ 初始化了 " << illegal_parking_zones_.size() << " 个违停检测区域" << std::endl;
-}
-
 // BatchStage接口实现
 std::string BatchEventDetermine::get_stage_name() const {
     return "批次事件判定";
@@ -464,3 +186,185 @@ double BatchEventDetermine::get_average_processing_time() const {
 size_t BatchEventDetermine::get_queue_size() const {
     return input_connector_->get_queue_size();
 }
+
+void BatchEventDetermine::perform_event_determination(ImageDataPtr image) {
+  
+  if (image->detection_results.empty()) {
+    image->has_filtered_box = false;
+    return;
+  }
+  
+  // 使用配置的区域比例
+  int image_height = image->height;
+  int region_top = image_height * top_fraction_;
+  int region_bottom = image_height * bottom_fraction_;
+  
+  // 首先在指定区域内寻找宽度最小的目标框
+  ImageData::BoundingBox* min_width_box = find_min_width_box_in_region(
+      image->detection_results, region_top, region_bottom);
+  
+  if (min_width_box == nullptr) {
+    min_width_box = find_min_width_box_in_region(
+        image->detection_results, 0, image_height);
+  }
+  
+  if (min_width_box != nullptr) {
+    // 找到了宽度最小的目标框，将其保存为筛选结果
+    image->filtered_box = *min_width_box;
+    image->has_filtered_box = true;
+    
+    int box_width = calculate_box_width(*min_width_box);
+    // 转换到mask的坐标系
+    box_width = box_width * image->mask_width / image->width;
+
+    // 根据mask获得车道线
+    EmergencyLaneResult eRes = get_Emergency_Lane(image->mask, box_width, min_width_box->bottom, times_car_width_);
+    // 将eRes结果转换到原图
+    for(auto& point : eRes.left_quarter_points) {
+      point.x = static_cast<int>(point.x * image->width / static_cast<double>(image->mask_width));
+      point.y = static_cast<int>(point.y * image->height / static_cast<double>(image->mask_height));
+    }
+    for(auto& point : eRes.right_quarter_points) {
+      point.x = static_cast<int>(point.x * image->width / static_cast<double>(image->mask_width));
+      point.y = static_cast<int>(point.y * image->height / static_cast<double>(image->mask_height));
+    }
+    for(auto& point : eRes.left_lane_region) {
+      point.x = static_cast<int>(point.x * image->width / static_cast<double>(image->mask_width));
+      point.y = static_cast<int>(point.y * image->height / static_cast<double>(image->mask_height));
+    }
+    for(auto& point : eRes.right_lane_region) {
+      point.x = static_cast<int>(point.x * image->width / static_cast<double>(image->mask_width));
+      point.y = static_cast<int>(point.y * image->height / static_cast<double>(image->mask_height));
+    }
+    for(auto& point : eRes.middle_lane_region) {
+      point.x = static_cast<int>(point.x * image->width / static_cast<double>(image->mask_width));
+      point.y = static_cast<int>(point.y * image->height / static_cast<double>(image->mask_height));
+    } 
+    // 判断车辆是否在应急车道内
+    for(auto &track_box:image->track_results) {
+      track_box.status = determineObjectStatus(track_box, eRes);
+    }
+   
+    // lane_show_image_path_ = "lane_results";
+    if(image->frame_idx % 200 == 0 && !lane_show_image_path_.empty()) {
+      // 绘制车道线结果
+      cv::Mat show_mat = image->imageMat.clone();
+      drawEmergencyLaneQuarterPoints(show_mat, eRes);
+      // 保存车道线结果图像
+      std::string filename = lane_show_image_path_ + "/" + std::to_string(image->frame_idx) + ".jpg";
+      cv::imwrite(filename, show_mat);
+      
+     
+    }    
+
+  } else {
+    // 全图范围内也没有目标框
+    image->has_filtered_box = false;
+    // std::cout << "⚠️ 全图范围内都没有找到目标框" << std::endl;
+  }
+  
+}
+
+int BatchEventDetermine::calculate_box_width(const ImageData::BoundingBox& box) const {
+  return box.right - box.left;
+}
+
+bool BatchEventDetermine::is_box_in_region(const ImageData::BoundingBox& box, 
+                                 int region_top, int region_bottom) const {
+  // 检查目标框的中心点是否在指定区域内
+  int box_center_y = (box.top + box.bottom) / 2;
+  return box_center_y >= region_top && box_center_y <= region_bottom;
+}
+
+ImageData::BoundingBox* BatchEventDetermine::find_min_width_box_in_region(
+    const std::vector<ImageData::BoundingBox>& boxes,
+    int region_top, int region_bottom) const {
+  
+  ImageData::BoundingBox* min_width_box = nullptr;
+  int min_width = std::numeric_limits<int>::max();
+  
+  // 遍历所有目标框，找到指定区域内宽度最小的
+  for (auto& box : boxes) {
+    if (is_box_in_region(box, region_top, region_bottom)) {
+      int width = calculate_box_width(box);
+      if (width < min_width) {
+        min_width = width;
+        // 注意：这里需要进行const_cast，因为我们需要返回非const指针
+        min_width_box = const_cast<ImageData::BoundingBox*>(&box);
+      }
+    }
+  }
+  
+  return min_width_box;
+}
+
+void
+  BatchEventDetermine::drawEmergencyLaneQuarterPoints(cv::Mat &image,
+                                 const EmergencyLaneResult &emergency_lane) {
+    if (!emergency_lane.is_valid) {
+      return;
+    }
+
+    // 绘制左车道四分之一点
+    if (!emergency_lane.left_quarter_points.empty()) {
+      for (const auto &point : emergency_lane.left_quarter_points) {
+        cv::circle(image, cv::Point(point.x, point.y), 3, cv::Scalar(0, 255, 0),
+                   -1); // 绿色圆点
+      }
+    }
+
+    // 绘制右车道四分之一点
+    if (!emergency_lane.right_quarter_points.empty()) {
+      for (const auto &point : emergency_lane.right_quarter_points) {
+        cv::circle(image, cv::Point(point.x, point.y), 3, cv::Scalar(0, 0, 255),
+                   -1); // 红色圆点
+      }
+    }
+
+    // 可选：绘制应急车道区域边界
+    if (!emergency_lane.left_lane_region.empty()) {
+      std::vector<cv::Point> left_contour;
+      for (const auto &pt : emergency_lane.left_lane_region) {
+        left_contour.emplace_back(pt.x, pt.y);
+      }
+      cv::polylines(image, left_contour, true, cv::Scalar(255, 255, 0),
+                    2); // 青色线条
+    }
+
+    if (!emergency_lane.right_lane_region.empty()) {
+      std::vector<cv::Point> right_contour;
+      for (const auto &pt : emergency_lane.right_lane_region) {
+        right_contour.emplace_back(pt.x, pt.y);
+      }
+      cv::polylines(image, right_contour, true, cv::Scalar(255, 0, 255),
+                    2); // 紫色线条
+    }
+  }
+
+  ObjectStatus
+  BatchEventDetermine::determineObjectStatus(const ImageData::BoundingBox &box,
+                        const EmergencyLaneResult &emergency_lane) {
+    if (!emergency_lane.is_valid) {
+      return ObjectStatus::NORMAL;
+    }
+    // 检查目标框的中心点是否在应急车道区域内
+    PointT center((box.left + box.right) / 2, (box.top + box.bottom) / 2);
+    // 判断点是否在应急车道区域内
+    auto is_in_region = [](const std::vector<PointT> &region, const PointT &pt) {
+      if (region.size() < 3)
+        return false;
+
+      std::vector<cv::Point> contour;
+      for (const auto &p : region) {
+        contour.emplace_back(p.x, p.y);
+      }
+      return cv::pointPolygonTest(contour, cv::Point2f(pt.x, pt.y), false) >= 0;
+    };
+
+    if (is_in_region(emergency_lane.left_lane_region, center) ||
+        is_in_region(emergency_lane.right_lane_region, center)) {
+      return ObjectStatus::OCCUPY_EMERGENCY_LANE;
+    }
+
+    return ObjectStatus::NORMAL;
+  }

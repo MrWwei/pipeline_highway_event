@@ -44,19 +44,12 @@ private:
     // 执行目标跟踪算法
     void perform_object_tracking(ImageDataPtr image, int thread_id);
     
-    // 批次内轨迹一致性处理
-    void process_batch_trajectory_consistency(BatchPtr batch);
-    
     // 初始化跟踪模型
     bool initialize_tracking_models();
     
     // 清理跟踪模型
     void cleanup_tracking_models();
     
-    // 轨迹管理
-    void update_trajectory_database(const std::vector<ImageData::BoundingBox>& track_results, uint64_t frame_idx);
-    int assign_track_id(const ImageData::BoundingBox& detection, uint64_t frame_idx);
-
 private:
     // 基本配置
     int num_threads_;

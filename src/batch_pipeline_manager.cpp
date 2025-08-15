@@ -199,6 +199,7 @@ void BatchPipelineManager::seg_coordinator_func() {
                 } else if (config_.enable_detection && mask_to_detection_connector_) {
                     mask_to_detection_connector_->send_batch(batch);
                 } else {
+                    std::cout << "实际batch大小是 " << batch->actual_size << std::endl;
                     final_result_connector_->send_batch(batch);
                 }
             }
