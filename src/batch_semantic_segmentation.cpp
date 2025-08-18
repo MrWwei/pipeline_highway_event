@@ -121,8 +121,8 @@ bool BatchSemanticSegmentation::process_batch(BatchPtr batch) {
     auto start_time = std::chrono::high_resolution_clock::now();
     batch->start_processing();
     
-    std::cout << "🎨 开始处理批次 " << batch->batch_id 
-              << "，包含 " << batch->actual_size << " 个图像" << std::endl;
+    // std::cout << "🎨 开始处理批次 " << batch->batch_id 
+    //           << "，包含 " << batch->actual_size << " 个图像" << std::endl;
     
     try {
         // 第一步：预处理所有图像
@@ -149,9 +149,9 @@ bool BatchSemanticSegmentation::process_batch(BatchPtr batch) {
         total_processing_time_ms_.fetch_add(duration.count());
         total_images_processed_.fetch_add(batch->actual_size);
         
-        std::cout << "✅ 批次 " << batch->batch_id << " 语义分割完成，耗时: " 
-                  << duration.count() << "ms，平均每张: " 
-                  << (double)duration.count() / batch->actual_size << "ms" << std::endl;
+        // std::cout << "✅ 批次 " << batch->batch_id << " 语义分割完成，耗时: " 
+        //           << duration.count() << "ms，平均每张: " 
+        //           << (double)duration.count() / batch->actual_size << "ms" << std::endl;
         
         return true;
         
@@ -188,13 +188,13 @@ void BatchSemanticSegmentation::worker_thread_func() {
 }
 
 void BatchSemanticSegmentation::preprocess_batch(BatchPtr batch) {
-    std::cout << "🔄 批次 " << batch->batch_id << " 开始预处理..." << std::endl;
+    // std::cout << "🔄 批次 " << batch->batch_id << " 开始预处理..." << std::endl;
     
     // 使用线程池并发预处理所有图像
     bool success = preprocess_batch_with_threadpool(batch);
     
     if (success) {
-        std::cout << "✅ 批次 " << batch->batch_id << " 预处理完成" << std::endl;
+        // std::cout << "✅ 批次 " << batch->batch_id << " 预处理完成" << std::endl;
     } else {
         std::cerr << "❌ 批次 " << batch->batch_id << " 预处理失败" << std::endl;
     }
@@ -300,6 +300,17 @@ bool BatchSemanticSegmentation::inference_batch(BatchPtr batch) {
             // cv::imwrite("mask_outs/output_" + std::to_string(batch->images[i]->frame_idx) + ".jpg", mask*255);
             batch->images[i]->mask_height = 1024;
             batch->images[i]->mask_width = 1024;
+            if(batch->images[i]->frame_idx % 200 == 0) {
+                cv::Mat label_map(1024, 1024, CV_8UC1, (void*) batch->images[i]->label_map.data());
+                // cv::imwrite(seg_show_image_path_+"/mask_" + std::to_string(batch->images[i]->frame_idx) + ".jpg", label_map*255);
+                // 创建彩色mask：浅绿色 (BGR格式: 绿色为主)
+                cv::Mat colored_mask = cv::Mat::zeros(1024, 1024, CV_8UC3);
+                // 设置浅绿色 (B=100, G=255, R=100)
+                colored_mask.setTo(cv::Scalar(0, 0, 255), label_map > 0);
+                cv::Mat blended_result;
+                cv::addWeighted(batch->images[i]->segInResizeMat, 0.4, colored_mask, 0.6, 0, blended_result);
+                cv::imwrite(seg_show_image_path_+"/output_" + std::to_string(batch->images[i]->frame_idx) + ".jpg", blended_result);
+            }
         } else {
             std::cerr << "⚠️ 图像 " << i << " 分割结果为空" << std::endl;
             batch->images[i]->mask_height = 1024;
@@ -309,8 +320,8 @@ bool BatchSemanticSegmentation::inference_batch(BatchPtr batch) {
     }
 
     
-    std::cout << "✅ 批次 " << batch->batch_id << " 推理完成，耗时: " 
-              << seg_duration.count() << "ms" << std::endl;
+    // std::cout << "✅ 批次 " << batch->batch_id << " 推理完成，耗时: " 
+    //           << seg_duration.count() << "ms" << std::endl;
     
     return true;
 }

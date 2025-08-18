@@ -133,9 +133,9 @@ bool BatchObjectTracking::process_batch(BatchPtr batch) {
         total_processing_time_ms_.fetch_add(duration.count());
         total_images_processed_.fetch_add(batch->actual_size);
         
-        std::cout << "✅ 批次 " << batch->batch_id << " 目标跟踪完成，耗时: " 
-                  << duration.count() << "ms，平均每张: " 
-                  << (double)duration.count() / batch->actual_size << "ms" << std::endl;
+        // std::cout << "✅ 批次 " << batch->batch_id << " 目标跟踪完成，耗时: " 
+        //           << duration.count() << "ms，平均每张: " 
+        //           << (double)duration.count() / batch->actual_size << "ms" << std::endl;
         
         return true;
         

@@ -92,8 +92,8 @@ bool BatchMaskPostProcess::process_batch(BatchPtr batch) {
     
     auto start_time = std::chrono::high_resolution_clock::now();
     
-    std::cout << "🔧 开始处理批次 " << batch->batch_id 
-              << " Mask后处理，包含 " << batch->actual_size << " 个图像" << std::endl;
+    // std::cout << "🔧 开始处理批次 " << batch->batch_id 
+    //           << " Mask后处理，包含 " << batch->actual_size << " 个图像" << std::endl;
     
     try {
         // 使用线程池并发处理批次中的所有图像
@@ -111,9 +111,9 @@ bool BatchMaskPostProcess::process_batch(BatchPtr batch) {
             total_processing_time_ms_.fetch_add(duration.count());
             total_images_processed_.fetch_add(batch->actual_size);
             
-            std::cout << "✅ 批次 " << batch->batch_id << " Mask后处理完成，耗时: " 
-                      << duration.count() << "ms，平均每张: " 
-                      << (double)duration.count() / batch->actual_size << "ms" << std::endl;
+            // std::cout << "✅ 批次 " << batch->batch_id << " Mask后处理完成，耗时: " 
+            //           << duration.count() << "ms，平均每张: " 
+            //           << (double)duration.count() / batch->actual_size << "ms" << std::endl;
             
             return true;
         } else {

@@ -13,7 +13,7 @@ BatchPipelineManager::BatchPipelineManager(const PipelineConfig& config)
     // 创建批次收集器，设置就绪队列限制为50个批次
     // 这样可以防止语义分割模块处理慢时内存无限增长
     input_buffer_ = std::make_unique<BatchBuffer>(
-        std::chrono::milliseconds(1000),  // 100ms超时刷新
+        std::chrono::milliseconds(10000),  // 100ms超时刷新
         1                               // 最多50个就绪批次，实现背压
     );
     
@@ -171,7 +171,7 @@ void BatchPipelineManager::seg_coordinator_func() {
         // 从输入缓冲区获取批次
         if (input_buffer_->get_ready_batch(batch)) {
             if (batch && config_.enable_segmentation && semantic_seg_) {
-                std::cout << "🎨 向语义分割阶段发送批次 " << batch->batch_id << std::endl;
+                // std::cout << "🎨 向语义分割阶段发送批次 " << batch->batch_id << std::endl;
                 
                 // 发送到语义分割阶段
                 if (!semantic_seg_->add_batch(batch)) {
@@ -226,7 +226,7 @@ void BatchPipelineManager::mask_coordinator_func() {
         // 从语义分割获取批次
         if (seg_to_mask_connector_->receive_batch(batch)) {
             if (batch) {
-                std::cout << "🔧 向Mask后处理阶段发送批次 " << batch->batch_id << std::endl;
+                // std::cout << "🔧 向Mask后处理阶段发送批次 " << batch->batch_id << std::endl;
                 
                 // 发送到Mask后处理阶段
                 if (!mask_postprocess_->add_batch(batch)) {
@@ -268,7 +268,7 @@ void BatchPipelineManager::detection_coordinator_func() {
         // 从Mask后处理获取批次
         if (mask_to_detection_connector_->receive_batch(batch)) {
             if (batch) {
-                std::cout << "🎯 向目标检测阶段发送批次 " << batch->batch_id << std::endl;
+                // std::cout << "🎯 向目标检测阶段发送批次 " << batch->batch_id << std::endl;
                 
                 // 发送到目标检测阶段
                 if (!object_detection_->add_batch(batch)) {
@@ -310,7 +310,7 @@ void BatchPipelineManager::tracking_coordinator_func() {
         // 从目标检测获取批次
         if (detection_to_tracking_connector_->receive_batch(batch)) {
             if (batch) {
-                std::cout << "🎯 向目标跟踪阶段发送批次 " << batch->batch_id << std::endl;
+                // std::cout << "🎯 向目标跟踪阶段发送批次 " << batch->batch_id << std::endl;
                 
                 // 发送到目标跟踪阶段
                 if (!object_tracking_->add_batch(batch)) {
@@ -352,7 +352,7 @@ void BatchPipelineManager::event_coordinator_func() {
         // 从目标跟踪获取批次
         if (tracking_to_event_connector_->receive_batch(batch)) {
             if (batch) {
-                std::cout << "🎯 向事件判定阶段发送批次 " << batch->batch_id << std::endl;
+                // std::cout << "🎯 向事件判定阶段发送批次 " << batch->batch_id << std::endl;
                 
                 // 发送到事件判定阶段
                 if (!event_determine_->add_batch(batch)) {
@@ -385,7 +385,7 @@ void BatchPipelineManager::result_collector_func() {
         // 从最终结果连接器获取批次
         if (final_result_connector_->receive_batch(batch)) {
             if (batch) {
-                std::cout << "📦 收集批次 " << batch->batch_id << " 的处理结果" << std::endl;
+                // std::cout << "📦 收集批次 " << batch->batch_id << " 的处理结果" << std::endl;
                 
                 // 将批次分解为单个图像并加入结果队列
                 decompose_batch_to_images(batch);

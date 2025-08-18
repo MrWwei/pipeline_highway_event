@@ -101,7 +101,7 @@ public:
         config.enable_tracking = true; // 关闭目标跟踪模块
         config.enable_event_determine = true;   // 关闭事件判定
 
-        config.seg_model_path = "ppseg_model.onnx"; // 语义分割模型路径
+        config.seg_model_path = "/home/ubuntu/wtwei/seg_trt/pidnet_resize.onnx"; // 语义分割模型路径
         config.car_det_model_path = "car_detect.onnx"; // 车辆检测模型路径
         config.pedestrian_det_model_path = "Pedestrain_TAG1_yl_S640_V1.2.onnx"; // 行人检测模型路径
 
@@ -109,7 +109,7 @@ public:
         config.seg_show_image_path = "./segmentation_results/"; // 分割结果图像保存路径
         config.get_timeout_ms = 100000; // 阻塞处理使用较长超时
 
-        config.times_car_width = 2.2f; // 车宽倍数
+        config.times_car_width = 1.2f; // 车宽倍数
         config.enable_lane_show = false; // 关闭车道线可视化
         config.lane_show_image_path = "./lane_results/"; // 车道线结果
         config.enable_pedestrian_detect = false;
@@ -169,27 +169,28 @@ public:
 
                 
                 if (result.status == ResultStatus::SUCCESS) {
-                    cv::Mat image = result.srcImage;
+                    // cv::Mat image = result.srcImage;
                     // cv::imwrite("src_outs/output_" + std::to_string(result.frame_id) + ".jpg", image);
                     // cv::Mat mask = result.mask;
                     // cv::imwrite("mask_outs/output_" + std::to_string(result.frame_id) + ".jpg", mask);
-                    for(auto box:result.detections){
-                        cv::Scalar color(0, 255, 0);
-                        if(box.status == ObjectStatus::OCCUPY_EMERGENCY_LANE){
-                            color = cv::Scalar(0, 0, 255); // 红色表示占用应急车道
-                        } 
-                        cv::rectangle(result.srcImage, 
-                                  cv::Point(box.left, box.top), 
-                                  cv::Point(box.right, box.bottom), 
-                                  color, 2);
-                        cv::putText(result.srcImage,
-                                    std::to_string(box.class_id) + " " + std::to_string(box.confidence),
-                                    cv::Point(box.left, box.top - 10),
-                                    cv::FONT_HERSHEY_SIMPLEX,
-                                    0.5,
-                                    color, 1);
-                    }
-                    cv::imwrite("src_outs/output_" + std::to_string(result.frame_id) + ".jpg", result.srcImage);
+                    // for(auto box:result.detections){
+                    //     cv::Scalar color(0, 255, 0);
+                    //     if(box.status == ObjectStatus::OCCUPY_EMERGENCY_LANE){
+                    //         color = cv::Scalar(0, 0, 255); // 红色表示占用应急车道
+                    //     } 
+                        // cv::rectangle(result.srcImage, 
+                        //           cv::Point(box.left, box.top), 
+                        //           cv::Point(box.right, box.bottom), 
+                        //           color, 2);
+                       
+                        // cv::putText(result.srcImage,
+                        //             std::to_string(box.track_id) +" " + std::to_string(int(box.confidence)),
+                        //             cv::Point(box.left, box.top - 10),
+                        //             cv::FONT_HERSHEY_SIMPLEX,
+                        //             0.5,
+                        //             color, 1);
+                    // }
+                    // cv::imwrite("src_outs/output_" + std::to_string(result.frame_id) + ".jpg", result.srcImage);
                     total_successful.fetch_add(1);
                     total_detections.fetch_add(result.detections.size());
                 } else {

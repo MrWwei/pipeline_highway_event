@@ -91,8 +91,8 @@ bool BatchEventDetermine::process_batch(BatchPtr batch) {
     
     auto start_time = std::chrono::high_resolution_clock::now();
     
-    std::cout << "⚠️ 开始处理批次 " << batch->batch_id 
-              << " 事件判定，包含 " << batch->actual_size << " 个图像" << std::endl;
+    // std::cout << "⚠️ 开始处理批次 " << batch->batch_id 
+    //           << " 事件判定，包含 " << batch->actual_size << " 个图像" << std::endl;
     
     try {
         // 确保图像按帧序号排序
@@ -132,8 +132,8 @@ bool BatchEventDetermine::process_batch(BatchPtr batch) {
         }
         total_events_detected_.fetch_add(events_in_batch);
         
-        std::cout << "✅ 批次 " << batch->batch_id << " 事件判定完成，耗时: " 
-                  << duration.count() << "ms，检测到 " << events_in_batch << " 个事件" << std::endl;
+        // std::cout << "✅ 批次 " << batch->batch_id << " 事件判定完成，耗时: " 
+        //           << duration.count() << "ms，检测到 " << events_in_batch << " 个事件" << std::endl;
         
         return true;
         

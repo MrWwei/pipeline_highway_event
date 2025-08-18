@@ -215,9 +215,9 @@ void BatchBuffer::move_batch_to_ready(BatchPtr batch) {
     }
     ready_cv_.notify_one();
     
-    std::cout << "📦 批次 " << batch->batch_id << " 已就绪，包含 " 
-              << batch->actual_size << " 个图像，队列大小: " 
-              << ready_batches_.size() << "/" << max_ready_batches_ << std::endl;
+    // std::cout << "📦 批次 " << batch->batch_id << " 已就绪，包含 " 
+    //           << batch->actual_size << " 个图像，队列大小: " 
+    //           << ready_batches_.size() << "/" << max_ready_batches_ << std::endl;
 }
 
 // BatchConnector implementation
