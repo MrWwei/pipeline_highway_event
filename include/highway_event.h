@@ -36,8 +36,8 @@ struct HighwayEventConfig {
     float det_iou_thresh = 0.2f;                            // NMS IoU阈值
     int det_max_batch_size = 16;                            // 最大批处理大小
     int det_min_opt = 1;                                    // 最小优化尺寸
-    int det_mid_opt = 16;                                   // 中等优化尺寸
-    int det_max_opt = 32;                                   // 最大优化尺寸
+    int det_mid_opt = 32;                                   // 中等优化尺寸
+    int det_max_opt = 64;                                   // 最大优化尺寸
     int det_is_ultralytics = 1;                             // 是否使用Ultralytics格式
     int det_gpu_id = 0;                                     // GPU设备ID
     
@@ -66,6 +66,11 @@ struct HighwayEventConfig {
     std::string seg_show_image_path = "./segmentation_results/"; // 分割结果图像保存路径
     bool enable_lane_show = false;                           // 启用车道线可视化
     std::string lane_show_image_path = "./lane_results/";   // 车道线结果图像保存路径
+    
+    // === 日志配置 ===
+    std::string log_file_path = "highway_event.log";       // 日志文件路径
+    bool enable_console_log = true;                         // 是否同时输出到控制台
+    std::string log_level = "INFO";                         // 日志级别 (DEBUG, INFO, WARN, ERROR)
     
     // === 超时配置 ===
     int add_timeout_ms = 5000;                              // 添加帧超时时间（毫秒）

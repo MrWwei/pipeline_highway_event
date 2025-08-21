@@ -1,4 +1,5 @@
 #include "event_determine.h"
+#include "logger_manager.h"
 #include "pipeline_manager.h"
 #include <chrono>
 #include <iostream>
@@ -29,7 +30,7 @@ EventDetermine::EventDetermine(int num_threads, const PipelineConfig* config)
     bottom_fraction_ = 8.0f / 9.0f;
     times_car_width_ = 3.0f; // 默认车宽倍数
   }
-  // std::cout << "🔍 事件判定模块初始化完成" << std::endl;
+  // LOG_INFO("🔍 事件判定模块初始化完成");
 }
 
 EventDetermine::~EventDetermine() {}
@@ -52,7 +53,7 @@ void EventDetermine::set_lane_show_interval(int interval) {
 
 void EventDetermine::process_image(ImageDataPtr image, int thread_id) {
   if (!image) {
-    std::cerr << "Error: Invalid image data in EventDetermine::process_image" << std::endl;
+    LOG_ERROR("Error: Invalid image data in EventDetermine::process_image");
     return;
   }
   
@@ -165,7 +166,7 @@ void EventDetermine::perform_event_determination(ImageDataPtr image, int thread_
   } else {
     // 全图范围内也没有目标框
     image->has_filtered_box = false;
-    // std::cout << "⚠️ 全图范围内都没有找到目标框" << std::endl;
+    // LOG_INFO("⚠️ 全图范围内都没有找到目标框");
   }
   
 }

@@ -1,4 +1,5 @@
 #include "batch_pipeline_manager.h"
+#include "logger_manager.h"
 #include <iostream>
 #include <iomanip>
 #include <future>
@@ -8,7 +9,7 @@ BatchPipelineManager::BatchPipelineManager(const PipelineConfig& config)
     : config_(config), running_(false), stop_requested_(false),
       status_print_interval_(std::chrono::seconds(5)) {
     
-    std::cout << "🏗️ 初始化批次流水线管理器..." << std::endl;
+    LOG_INFO("初始化批次流水线管理器...");
     
     // 创建批次收集器，设置就绪队列限制为50个批次
     // 这样可以防止语义分割模块处理慢时内存无限增长
@@ -22,10 +23,10 @@ BatchPipelineManager::BatchPipelineManager(const PipelineConfig& config)
     
     // 初始化处理阶段
     if (!initialize_stages()) {
-        std::cerr << "❌ 批次流水线阶段初始化失败" << std::endl;
+        LOG_ERROR("批次流水线阶段初始化失败");
     }
     
-    std::cout << "✅ 批次流水线管理器初始化完成" << std::endl;
+    LOG_INFO("批次流水线管理器初始化完成");
 }
 
 BatchPipelineManager::~BatchPipelineManager() {
@@ -35,7 +36,7 @@ BatchPipelineManager::~BatchPipelineManager() {
 
 void BatchPipelineManager::start() {
     if (running_.load()) {
-        std::cout << "⚠️ 批次流水线已经在运行中" << std::endl;
+        LOG_WARN("批次流水线已经在运行中");
         return;
     }
     
@@ -43,14 +44,14 @@ void BatchPipelineManager::start() {
     stop_requested_.store(false);
     start_time_ = std::chrono::high_resolution_clock::now();
     
-    std::cout << "🚀 启动批次流水线..." << std::endl;
+    LOG_INFO("启动批次流水线...");
     
     // 启动批次收集器
     input_buffer_->start();
     
     // 启动处理阶段
     if (config_.enable_segmentation && semantic_seg_) {
-        std::cout << "🎨 启动语义分割阶段..." << std::endl;
+        LOG_INFO("启动语义分割阶段...");
         semantic_seg_->start();
     }
     if (config_.enable_mask_postprocess && mask_postprocess_) {
@@ -84,7 +85,7 @@ void BatchPipelineManager::start() {
     // 启动状态监控线程
     status_monitor_thread_ = std::thread(&BatchPipelineManager::status_monitor_func, this);
     
-    std::cout << "✅ 批次流水线启动完成" << std::endl;
+    LOG_INFO("批次流水线启动完成");
 }
 
 void BatchPipelineManager::stop() {
@@ -92,7 +93,7 @@ void BatchPipelineManager::stop() {
         return;
     }
     
-    std::cout << "🛑 正在停止批次流水线..." << std::endl;
+    LOG_INFO("正在停止批次流水线...");
     
     stop_requested_.store(true);
     running_.store(false);
@@ -126,7 +127,7 @@ void BatchPipelineManager::stop() {
     if (result_collector_thread_.joinable()) result_collector_thread_.join();
     if (status_monitor_thread_.joinable()) status_monitor_thread_.join();
     
-    std::cout << "✅ 批次流水线已停止" << std::endl;
+    LOG_INFO("批次流水线已停止");
 }
 
 bool BatchPipelineManager::add_image(ImageDataPtr image) {
@@ -163,7 +164,7 @@ bool BatchPipelineManager::get_result_image(ImageDataPtr& image) {
 }
 
 void BatchPipelineManager::seg_coordinator_func() {
-    std::cout << "🎨 语义分割协调线程已启动" << std::endl;
+    LOG_DEBUG("语义分割协调线程已启动");
     
     while (running_.load()) {
         BatchPtr batch;
@@ -175,7 +176,7 @@ void BatchPipelineManager::seg_coordinator_func() {
                 
                 // 发送到语义分割阶段
                 if (!semantic_seg_->add_batch(batch)) {
-                    std::cerr << "❌ 无法发送批次到语义分割阶段" << std::endl;
+                    LOG_ERROR("无法发送批次到语义分割阶段");
                 }
                 
                 // 获取处理完成的批次
@@ -210,7 +211,7 @@ void BatchPipelineManager::seg_coordinator_func() {
         }
     }
     
-    std::cout << "🎨 语义分割协调线程已结束" << std::endl;
+    LOG_DEBUG("语义分割协调线程已结束");
 }
 
 void BatchPipelineManager::mask_coordinator_func() {
@@ -218,7 +219,7 @@ void BatchPipelineManager::mask_coordinator_func() {
         return;
     }
     
-    std::cout << "🔧 Mask后处理协调线程已启动" << std::endl;
+    LOG_INFO("🔧 Mask后处理协调线程已启动");
     
     while (running_.load()) {
         BatchPtr batch;
@@ -230,7 +231,7 @@ void BatchPipelineManager::mask_coordinator_func() {
                 
                 // 发送到Mask后处理阶段
                 if (!mask_postprocess_->add_batch(batch)) {
-                    std::cerr << "❌ 无法发送批次到Mask后处理阶段" << std::endl;
+                    LOG_ERROR("无法发送批次到Mask后处理阶段");
                 }
                 
                 // 获取处理完成的批次
@@ -252,7 +253,7 @@ void BatchPipelineManager::mask_coordinator_func() {
         }
     }
     
-    std::cout << "🔧 Mask后处理协调线程已结束" << std::endl;
+    LOG_INFO("🔧 Mask后处理协调线程已结束");
 }
 
 void BatchPipelineManager::detection_coordinator_func() {
@@ -260,7 +261,7 @@ void BatchPipelineManager::detection_coordinator_func() {
         return;
     }
     
-    std::cout << "🎯 目标检测协调线程已启动" << std::endl;
+    LOG_INFO("🎯 目标检测协调线程已启动");
     
     while (running_.load()) {
         BatchPtr batch;
@@ -272,7 +273,7 @@ void BatchPipelineManager::detection_coordinator_func() {
                 
                 // 发送到目标检测阶段
                 if (!object_detection_->add_batch(batch)) {
-                    std::cerr << "❌ 无法发送批次到目标检测阶段" << std::endl;
+                    LOG_ERROR("无法发送批次到目标检测阶段");
                 }
                 
                 // 获取处理完成的批次
@@ -294,7 +295,7 @@ void BatchPipelineManager::detection_coordinator_func() {
         }
     }
     
-    std::cout << "🎯 目标检测协调线程已结束" << std::endl;
+    LOG_INFO("🎯 目标检测协调线程已结束");
 }
 
 void BatchPipelineManager::tracking_coordinator_func() {
@@ -302,7 +303,7 @@ void BatchPipelineManager::tracking_coordinator_func() {
         return;
     }
     
-    std::cout << "🎯 目标跟踪协调线程已启动" << std::endl;
+    LOG_INFO("🎯 目标跟踪协调线程已启动");
     
     while (running_.load()) {
         BatchPtr batch;
@@ -314,7 +315,7 @@ void BatchPipelineManager::tracking_coordinator_func() {
                 
                 // 发送到目标跟踪阶段
                 if (!object_tracking_->add_batch(batch)) {
-                    std::cerr << "❌ 无法发送批次到目标跟踪阶段" << std::endl;
+                    LOG_ERROR("无法发送批次到目标跟踪阶段");
                 }
                 
                 // 获取处理完成的批次
@@ -336,7 +337,7 @@ void BatchPipelineManager::tracking_coordinator_func() {
         }
     }
     
-    std::cout << "🎯 目标跟踪协调线程已结束" << std::endl;
+    LOG_INFO("🎯 目标跟踪协调线程已结束");
 }
 
 void BatchPipelineManager::event_coordinator_func() {
@@ -344,7 +345,7 @@ void BatchPipelineManager::event_coordinator_func() {
         return;
     }
     
-    std::cout << "🎯 事件判定协调线程已启动" << std::endl;
+    LOG_INFO("🎯 事件判定协调线程已启动");
     
     while (running_.load()) {
         BatchPtr batch;
@@ -356,7 +357,7 @@ void BatchPipelineManager::event_coordinator_func() {
                 
                 // 发送到事件判定阶段
                 if (!event_determine_->add_batch(batch)) {
-                    std::cerr << "❌ 无法发送批次到事件判定阶段" << std::endl;
+                    LOG_ERROR("无法发送批次到事件判定阶段");
                 }
                 
                 // 获取处理完成的批次
@@ -373,11 +374,11 @@ void BatchPipelineManager::event_coordinator_func() {
         }
     }
     
-    std::cout << "🎯 事件判定协调线程已结束" << std::endl;
+    LOG_INFO("🎯 事件判定协调线程已结束");
 }
 
 void BatchPipelineManager::result_collector_func() {
-    std::cout << "📦 结果收集线程已启动" << std::endl;
+    LOG_INFO("📦 结果收集线程已启动");
     
     while (running_.load()) {
         BatchPtr batch;
@@ -400,7 +401,7 @@ void BatchPipelineManager::result_collector_func() {
         }
     }
     
-    std::cout << "📦 结果收集线程已结束" << std::endl;
+    LOG_INFO("📦 结果收集线程已结束");
 }
 
 void BatchPipelineManager::decompose_batch_to_images(BatchPtr batch) {
@@ -431,42 +432,43 @@ void BatchPipelineManager::status_monitor_func() {
 }
 
 bool BatchPipelineManager::initialize_stages() {
-    std::cout << "🏗️ 初始化批次处理阶段..." << std::endl;
+    LOG_INFO("🏗️ 初始化批次处理阶段...");
     
     // 创建连接器
-    seg_to_mask_connector_ = std::make_unique<BatchConnector>(10);
-    mask_to_detection_connector_ = std::make_unique<BatchConnector>(10);
-    detection_to_tracking_connector_ = std::make_unique<BatchConnector>(10);
-    tracking_to_event_connector_ = std::make_unique<BatchConnector>(10);
+    int connector_capacity = 10; // 每个连接器的容量
+    seg_to_mask_connector_ = std::make_unique<BatchConnector>(connector_capacity);
+    mask_to_detection_connector_ = std::make_unique<BatchConnector>(connector_capacity);
+    detection_to_tracking_connector_ = std::make_unique<BatchConnector>(connector_capacity);
+    tracking_to_event_connector_ = std::make_unique<BatchConnector>(connector_capacity);
     
     // 初始化语义分割阶段
     if (config_.enable_segmentation) {
         semantic_seg_ = std::make_unique<BatchSemanticSegmentation>(config_.semantic_threads, &config_);
-        std::cout << "✅ 批次语义分割阶段初始化完成" << std::endl;
+        LOG_INFO("✅ 批次语义分割阶段初始化完成");
     }
     
     // 初始化Mask后处理阶段
     if (config_.enable_mask_postprocess) {
         mask_postprocess_ = std::make_unique<BatchMaskPostProcess>(config_.mask_postprocess_threads);
-        std::cout << "✅ 批次Mask后处理阶段初始化完成" << std::endl;
+        LOG_INFO("✅ 批次Mask后处理阶段初始化完成");
     }
     
     // 初始化目标检测阶段
     if (config_.enable_detection) {
         object_detection_ = std::make_unique<BatchObjectDetection>(config_.detection_threads, &config_);
-        std::cout << "✅ 批次目标检测阶段初始化完成" << std::endl;
+        LOG_INFO("✅ 批次目标检测阶段初始化完成");
     }
     
     // 初始化目标跟踪阶段
     if (config_.enable_tracking) {
         object_tracking_ = std::make_unique<BatchObjectTracking>(config_.tracking_threads, &config_);
-        std::cout << "✅ 批次目标跟踪阶段初始化完成" << std::endl;
+        LOG_INFO("✅ 批次目标跟踪阶段初始化完成");
     }
     
     // 初始化事件判定阶段
     if (config_.enable_event_determine) {
         event_determine_ = std::make_unique<BatchEventDetermine>(config_.event_determine_threads, &config_);
-        std::cout << "✅ 批次事件判定阶段初始化完成" << std::endl;
+        LOG_INFO("✅ 批次事件判定阶段初始化完成");
     }
     
     return true;
@@ -490,80 +492,84 @@ void BatchPipelineManager::print_status() const {
     auto now = std::chrono::high_resolution_clock::now();
     auto runtime = std::chrono::duration_cast<std::chrono::seconds>(now - start_time_);
     
-    std::cout << "\n" << std::string(80, '=') << std::endl;
-    std::cout << "📊 批次流水线状态报告 (运行时间: " << runtime.count() << "s)" << std::endl;
-    std::cout << std::string(80, '=') << std::endl;
+    std::ostringstream status_stream;
+    status_stream << "\n" << std::string(80, '=') << "\n";
+    status_stream << "📊 批次流水线状态报告 (运行时间: " << runtime.count() << "s)\n";
+    status_stream << std::string(80, '=') << "\n";
     
     // 基本统计
     auto stats = get_statistics();
-    std::cout << std::fixed << std::setprecision(2);
-    std::cout << "📈 总体统计:" << std::endl;
-    std::cout << "  输入图像数: " << stats.total_images_input << std::endl;
-    std::cout << "  处理批次数: " << stats.total_batches_processed << std::endl;
-    std::cout << "  输出图像数: " << stats.total_images_output << std::endl;
-    std::cout << "  吞吐量: " << stats.throughput_images_per_second << " 图像/秒" << std::endl;
-    std::cout << "  平均批次处理时间: " << stats.average_batch_processing_time_ms << " ms" << std::endl;
+    status_stream << std::fixed << std::setprecision(2);
+    status_stream << "📈 总体统计:\n";
+    status_stream << "  输入图像数: " << stats.total_images_input << "\n";
+    status_stream << "  处理批次数: " << stats.total_batches_processed << "\n";
+    status_stream << "  输出图像数: " << stats.total_images_output << "\n";
+    status_stream << "  吞吐量: " << stats.throughput_images_per_second << " 图像/秒\n";
+    status_stream << "  平均批次处理时间: " << stats.average_batch_processing_time_ms << " ms\n";
     
     // 队列状态
-    std::cout << "\n📋 队列状态:" << std::endl;
+    status_stream << "\n📋 队列状态:\n";
     
     // 输入缓冲区状态，包含背压信息
     bool is_backpressure = input_buffer_->is_ready_queue_full();
-    std::cout << "  输入缓冲区: " << input_buffer_->get_current_collecting_size() << "/32 (收集中), " 
+    status_stream << "  输入缓冲区: " << input_buffer_->get_current_collecting_size() << "/32 (收集中), " 
               << input_buffer_->get_ready_batch_count() << "/" << input_buffer_->get_max_ready_batches() 
               << " 批次就绪";
     if (is_backpressure) {
-        std::cout << " ⚠️ 背压激活";
+        status_stream << " ⚠️ 背压激活";
     }
-    std::cout << std::endl;
+    status_stream << "\n";
     
     if (semantic_seg_) {
-        std::cout << "  语义分割: " << semantic_seg_->get_queue_size() << " 批次等待" << std::endl;
+        status_stream << "  语义分割: " << semantic_seg_->get_queue_size() << " 批次等待\n";
     }
     if (mask_postprocess_) {
-        std::cout << "  Mask后处理: " << mask_postprocess_->get_queue_size() << " 批次等待" << std::endl;
+        status_stream << "  Mask后处理: " << mask_postprocess_->get_queue_size() << " 批次等待\n";
     }
     if (object_detection_) {
-        std::cout << "  目标检测: " << object_detection_->get_queue_size() << " 批次等待" << std::endl;
+        status_stream << "  目标检测: " << object_detection_->get_queue_size() << " 批次等待\n";
     }
     if (object_tracking_) {
-        std::cout << "  目标跟踪: " << object_tracking_->get_queue_size() << " 批次等待" << std::endl;
+        status_stream << "  目标跟踪: " << object_tracking_->get_queue_size() << " 批次等待\n";
     }
     if (event_determine_) {
-        std::cout << "  事件判定: " << event_determine_->get_queue_size() << " 批次等待" << std::endl;
+        status_stream << "  事件判定: " << event_determine_->get_queue_size() << " 批次等待\n";
     }
     
-    std::cout << "  结果队列: " << stats.current_output_buffer_size << " 图像等待输出" << std::endl;
+    status_stream << "  结果队列: " << stats.current_output_buffer_size << " 图像等待输出\n";
     
     // 性能指标
-    std::cout << "\n⚡ 各阶段性能:" << std::endl;
+    status_stream << "\n⚡ 各阶段性能:\n";
     if (semantic_seg_) {
-        std::cout << "  " << semantic_seg_->get_stage_name() << ": "
+        status_stream << "  " << semantic_seg_->get_stage_name() << ": "
                   << semantic_seg_->get_processed_count() << " 批次, 平均 "
-                  << semantic_seg_->get_average_processing_time() << " ms/批次" << std::endl;
+                  << semantic_seg_->get_average_processing_time() << " ms/批次\n";
     }
     if (mask_postprocess_) {
-        std::cout << "  " << mask_postprocess_->get_stage_name() << ": "
+        status_stream << "  " << mask_postprocess_->get_stage_name() << ": "
                   << mask_postprocess_->get_processed_count() << " 批次, 平均 "
-                  << mask_postprocess_->get_average_processing_time() << " ms/批次" << std::endl;
+                  << mask_postprocess_->get_average_processing_time() << " ms/批次\n";
     }
     if (object_detection_) {
-        std::cout << "  " << object_detection_->get_stage_name() << ": "
+        status_stream << "  " << object_detection_->get_stage_name() << ": "
                   << object_detection_->get_processed_count() << " 批次, 平均 "
-                  << object_detection_->get_average_processing_time() << " ms/批次" << std::endl;
+                  << object_detection_->get_average_processing_time() << " ms/批次\n";
     }
     if (object_tracking_) {
-        std::cout << "  " << object_tracking_->get_stage_name() << ": "
+        status_stream << "  " << object_tracking_->get_stage_name() << ": "
                   << object_tracking_->get_processed_count() << " 批次, 平均 "
-                  << object_tracking_->get_average_processing_time() << " ms/批次" << std::endl;
+                  << object_tracking_->get_average_processing_time() << " ms/批次\n";
     }
     if (event_determine_) {
-        std::cout << "  " << event_determine_->get_stage_name() << ": "
+        status_stream << "  " << event_determine_->get_stage_name() << ": "
                   << event_determine_->get_processed_count() << " 批次, 平均 "
-                  << event_determine_->get_average_processing_time() << " ms/批次" << std::endl;
+                  << event_determine_->get_average_processing_time() << " ms/批次\n";
     }
     
-    std::cout << std::string(80, '=') << std::endl << std::endl;
+    status_stream << std::string(80, '=') << "\n\n";
+    
+    // 使用日志输出整个状态报告
+    LOG_INFO(status_stream.str());
 }
 
 BatchPipelineManager::Statistics BatchPipelineManager::get_statistics() const {

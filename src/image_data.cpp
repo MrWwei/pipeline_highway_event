@@ -1,4 +1,5 @@
 #include "image_data.h"
+#include "logger_manager.h"
 #include <iostream>
 #include <random>
 

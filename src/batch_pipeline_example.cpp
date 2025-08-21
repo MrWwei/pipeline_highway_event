@@ -1,4 +1,5 @@
 #include "batch_pipeline_manager.h"
+#include "logger_manager.h"
 #include "pipeline_config.h"
 #include <opencv2/opencv.hpp>
 #include <iostream>
@@ -11,13 +12,13 @@
  */
 
 void print_usage() {
-    std::cout << "批次流水线使用示例" << std::endl;
-    std::cout << "用法: ./batch_pipeline_example [选项]" << std::endl;
-    std::cout << "选项:" << std::endl;
-    std::cout << "  --help          显示此帮助信息" << std::endl;
-    std::cout << "  --test-images   使用测试图像" << std::endl;
-    std::cout << "  --duration N    运行N秒 (默认: 30)" << std::endl;
-    std::cout << "  --fps N         输入帧率 (默认: 25)" << std::endl;
+    LOG_INFO("批次流水线使用示例");
+    LOG_INFO("用法: ./batch_pipeline_example [选项]");
+    LOG_INFO("选项:");
+    LOG_INFO("  --help          显示此帮助信息");
+    LOG_INFO("  --test-images   使用测试图像");
+    LOG_INFO("  --duration N    运行N秒 (默认: 30)");
+    LOG_INFO("  --fps N         输入帧率 (默认: 25)");
 }
 
 // 创建测试图像
@@ -46,7 +47,7 @@ cv::Mat create_test_image(int width = 1920, int height = 1080, int frame_idx = 0
 }
 
 int main(int argc, char* argv[]) {
-    std::cout << "🚀 批次流水线使用示例" << std::endl;
+    LOG_INFO("🚀 批次流水线使用示例");
     
     // 解析命令行参数
     bool use_test_images = false;
@@ -97,7 +98,7 @@ int main(int argc, char* argv[]) {
     config.enable_seg_show = false;  // 禁用可视化以提高性能
     config.seg_show_image_path = "./seg_results/";
     
-    std::cout << "📋 流水线配置:" << std::endl;
+    LOG_INFO("📋 流水线配置:");
     std::cout << "  语义分割线程数: " << config.semantic_threads << std::endl;
     std::cout << "  Mask后处理线程数: " << config.mask_postprocess_threads << std::endl;
     std::cout << "  目标检测线程数: " << config.detection_threads << std::endl;
@@ -106,16 +107,16 @@ int main(int argc, char* argv[]) {
     
     try {
         // 创建批次流水线管理器
-        std::cout << "🏗️ 创建批次流水线管理器..." << std::endl;
+        LOG_INFO("🏗️ 创建批次流水线管理器...");
         BatchPipelineManager pipeline(config);
         
         // 启动流水线
-        std::cout << "🚀 启动批次流水线..." << std::endl;
+        LOG_INFO("🚀 启动批次流水线...");
         pipeline.start();
         
         // 输入数据线程
         std::thread input_thread([&]() {
-            std::cout << "📥 输入线程已启动" << std::endl;
+            LOG_INFO("📥 输入线程已启动");
             
             uint64_t frame_idx = 0;
             auto frame_interval = std::chrono::milliseconds(1000 / fps);
@@ -141,7 +142,7 @@ int main(int argc, char* argv[]) {
                 
                 // 添加到流水线
                 if (!pipeline.add_image(image_data)) {
-                    std::cerr << "❌ 无法添加图像到流水线" << std::endl;
+                    LOG_ERROR("❌ 无法添加图像到流水线");
                     break;
                 }
                 
@@ -162,7 +163,7 @@ int main(int argc, char* argv[]) {
         
         // 输出结果线程
         std::thread output_thread([&]() {
-            std::cout << "📤 输出线程已启动" << std::endl;
+            LOG_INFO("📤 输出线程已启动");
             
             uint64_t output_count = 0;
             auto start_time = std::chrono::high_resolution_clock::now();
@@ -205,7 +206,7 @@ int main(int argc, char* argv[]) {
         std::this_thread::sleep_for(std::chrono::seconds(duration_seconds));
         
         // 停止流水线
-        std::cout << "🛑 停止批次流水线..." << std::endl;
+        LOG_INFO("🛑 停止批次流水线...");
         pipeline.stop();
         
         // 等待线程结束
@@ -213,7 +214,7 @@ int main(int argc, char* argv[]) {
         if (output_thread.joinable()) output_thread.join();
         
         // 打印最终统计信息
-        std::cout << "\n📊 最终统计信息:" << std::endl;
+        LOG_INFO("\n📊 最终统计信息:");
         auto final_stats = pipeline.get_statistics();
         std::cout << "  总输入图像: " << final_stats.total_images_input << std::endl;
         std::cout << "  总处理批次: " << final_stats.total_batches_processed << std::endl;
@@ -228,7 +229,7 @@ int main(int argc, char* argv[]) {
         }
         std::cout << "  处理效率: " << std::fixed << std::setprecision(1) << efficiency << "%" << std::endl;
         
-        std::cout << "✅ 批次流水线示例运行完成" << std::endl;
+        LOG_INFO("✅ 批次流水线示例运行完成");
         
     } catch (const std::exception& e) {
         std::cerr << "❌ 批次流水线示例运行失败: " << e.what() << std::endl;

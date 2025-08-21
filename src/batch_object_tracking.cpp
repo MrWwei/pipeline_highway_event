@@ -1,4 +1,5 @@
 #include "batch_object_tracking.h"
+#include "logger_manager.h"
 #include <iostream>
 #include <algorithm>
 // #include <execution>
@@ -20,15 +21,29 @@ BatchObjectTracking::BatchObjectTracking(int num_threads, const PipelineConfig* 
     }
     track_instances_.reserve(num_threads_);
     auto track_instance = xtkj::createTracker(30, 30, 0.5, 0.6, 0.8);
+    track_instance->init(30, 30, 0.5, 0.6, 0.8);
     track_instances_.push_back(std::unique_ptr<xtkj::ITracker>(track_instance));
-    vehicle_parking_instance_ = createVehicleParkingDetect();
+    vehicle_parking_instance_ = createVehicleParkingDetectOptimized();
+    // 初始化车辆停车检测参数
+    VehicleParkingInitParams parkingParams;
+    parkingParams.K = 4;
+    parkingParams.EPS_WORLD = 2.0;
+    parkingParams.MIN_SPEED_FRAMES = 3;
+    parkingParams.RESET_EVERY = 200;
+    parkingParams.MAX_FEATURES = 800;
+    parkingParams.FEATURE_QUALITY = 0.02;
+    parkingParams.MIN_DISTANCE = 10;
+    parkingParams.MIN_TRACK_POINTS = 80;
+    parkingParams.RANSAC_THRESHOLD = 3.0;
+    parkingParams.MIN_INLIERS = 80;
+    vehicle_parking_instance_->init(parkingParams);
     // 创建输入输出连接器
     input_connector_ = std::make_unique<BatchConnector>(10);
     output_connector_ = std::make_unique<BatchConnector>(10);
     
     // 初始化跟踪模型
     if (!initialize_tracking_models()) {
-        std::cerr << "❌ 批次目标跟踪模型初始化失败" << std::endl;
+        LOG_ERROR("❌ 批次目标跟踪模型初始化失败");
     }
 }
 
@@ -80,7 +95,7 @@ void BatchObjectTracking::stop() {
     }
     worker_threads_.clear();
     
-    std::cout << "🛑 批次目标跟踪已停止" << std::endl;
+    LOG_INFO("🛑 批次目标跟踪已停止");
 }
 
 bool BatchObjectTracking::add_batch(BatchPtr batch) {

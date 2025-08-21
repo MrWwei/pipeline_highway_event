@@ -1,4 +1,5 @@
 #include "image_processor.h"
+#include "logger_manager.h"
 #include <chrono>
 #include <iostream>
 #include <thread>

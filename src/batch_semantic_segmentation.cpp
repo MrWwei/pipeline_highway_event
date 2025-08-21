@@ -1,4 +1,5 @@
 #include "batch_semantic_segmentation.h"
+#include "logger_manager.h"
 #include <iostream>
 #include <algorithm>
 // #include <execution>
@@ -9,7 +10,7 @@
 BatchSemanticSegmentation::BatchSemanticSegmentation(int num_threads, const PipelineConfig* config)
     : num_threads_(num_threads), running_(false), stop_requested_(false),
       cuda_available_(false), enable_seg_show_(false), seg_show_interval_(10) {
-    std::cout << "🏗️ 初始化批次语义分割阶段..." << std::endl;
+    LOG_INFO("🏗️ 初始化批次语义分割阶段...");
     
     // 创建线程池
     thread_pool_ = std::make_unique<ThreadPool>(8);
@@ -31,15 +32,15 @@ BatchSemanticSegmentation::BatchSemanticSegmentation(int num_threads, const Pipe
         gpu_src_cache_.create(1024, 1024, CV_8UC3);
         gpu_dst_cache_.create(1024, 1024, CV_8UC3);
         cuda_available_ = true;
-        std::cout << "✅ CUDA已启用，批次语义分割将使用GPU加速" << std::endl;
+        LOG_INFO("✅ CUDA已启用，批次语义分割将使用GPU加速");
     } catch (const cv::Exception& e) {
         cuda_available_ = false;
-        std::cout << "⚠️ 未检测到CUDA设备，批次语义分割将使用CPU" << std::endl;
+        LOG_INFO("⚠️ 未检测到CUDA设备，批次语义分割将使用CPU");
     }
     
     // 初始化语义分割模型
     if (!initialize_seg_models()) {
-        std::cerr << "❌ 批次语义分割模型初始化失败" << std::endl;
+        LOG_ERROR("❌ 批次语义分割模型初始化失败");
     }
 }
 
@@ -99,7 +100,7 @@ void BatchSemanticSegmentation::stop() {
     }
     worker_threads_.clear();
     
-    std::cout << "🛑 批次语义分割已停止" << std::endl;
+    LOG_INFO("🛑 批次语义分割已停止");
 }
 
 bool BatchSemanticSegmentation::add_batch(BatchPtr batch) {
@@ -164,7 +165,7 @@ bool BatchSemanticSegmentation::process_batch(BatchPtr batch) {
 void BatchSemanticSegmentation::worker_thread_func() {
     while (running_.load()) {
         BatchPtr batch;
-        std::cout << "🔄 等待输入批次..." << std::endl;
+        LOG_INFO("🔄 等待输入批次...");
         // 从输入连接器获取批次
         if (input_connector_->receive_batch(batch)) {
             if (batch) {
@@ -214,7 +215,12 @@ bool BatchSemanticSegmentation::preprocess_batch_with_threadpool(BatchPtr batch)
             try {
                 auto future = thread_pool_->enqueue([this, image = batch->images[i], thread_id = i % num_threads_]() -> bool {
                     try {
+                        // auto start_time = std::chrono::high_resolution_clock::now();
                         this->preprocess_image(image, thread_id);
+                        // auto end_time = std::chrono::high_resolution_clock::now();
+                        // auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+                        // std::cout << "语义分割预处理图像 " << image->frame_idx 
+                        //           << " 耗时: " << duration.count() << " ms" << std::endl;
                         return true;
                     } catch (const std::exception& e) {
                         std::cerr << "❌ 图像 " << image->frame_idx << " 预处理异常: " << e.what() << std::endl;
@@ -250,7 +256,7 @@ bool BatchSemanticSegmentation::preprocess_batch_with_threadpool(BatchPtr batch)
 bool BatchSemanticSegmentation::inference_batch(BatchPtr batch) {
     
     if (seg_instances_.empty()) {
-        std::cerr << "❌ 语义分割模型实例未初始化" << std::endl;
+        LOG_ERROR("❌ 语义分割模型实例未初始化");
         return false;
     }
     
@@ -280,9 +286,11 @@ bool BatchSemanticSegmentation::inference_batch(BatchPtr batch) {
     
     auto seg_end = std::chrono::high_resolution_clock::now();
     auto seg_duration = std::chrono::duration_cast<std::chrono::milliseconds>(seg_end - seg_start);
-    
+    std::cout << "🧠 批次 " << batch->batch_id 
+              << " 语义分割推理完成，耗时: " << seg_duration.count() << " ms" 
+              << ", 实际图像数量: " << batch->actual_size << std::endl;
     if (!inference_success) {
-        std::cerr << "❌ 批次推理失败" << std::endl;
+        LOG_ERROR("❌ 批次推理失败");
         return false;
     }
     
@@ -319,10 +327,6 @@ bool BatchSemanticSegmentation::inference_batch(BatchPtr batch) {
         batch->images[i]->segmentation_completed = true;
     }
 
-    
-    // std::cout << "✅ 批次 " << batch->batch_id << " 推理完成，耗时: " 
-    //           << seg_duration.count() << "ms" << std::endl;
-    
     return true;
 }
 
@@ -342,7 +346,7 @@ void BatchSemanticSegmentation::preprocess_image(ImageDataPtr image, int thread_
         cv::Size parking_size(static_cast<int>(image->imageMat.cols * parking_scale),
                              static_cast<int>(image->imageMat.rows * parking_scale));
         
-        if (cuda_available_) {
+        if (false) {
             // 使用CUDA加速预处理，复用预分配的GPU缓存
             std::lock_guard<std::mutex> lock(gpu_mutex_);
             

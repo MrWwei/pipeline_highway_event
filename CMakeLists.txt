@@ -31,7 +31,7 @@ include_directories(/home/ubuntu/wtwei/object_detect/include)
 
 # object_track
 add_library(track_lib SHARED IMPORTED)
-set_target_properties( track_lib PROPERTIES IMPORTED_LOCATION /home/ubuntu/wtwei/object_track/build/libtrack_btk_n_x86_V6.3.so )
+set_target_properties( track_lib PROPERTIES IMPORTED_LOCATION /home/ubuntu/wtwei/object_track/build/libtrack_btk_x86_V6.3.so )
 include_directories(/home/ubuntu/wtwei/object_track/include)
 
 add_library(road_seg_interface SHARED IMPORTED)
@@ -42,6 +42,11 @@ add_library(vehicle_parking SHARED IMPORTED)
 set_target_properties( vehicle_parking PROPERTIES IMPORTED_LOCATION /home/ubuntu/wtwei/vehicle_parking/build/libvehicle_parking_detect_V1.0.so )
 include_directories(/home/ubuntu/wtwei/vehicle_parking/include)
 
+# log
+add_library(log4cplus_lib SHARED IMPORTED)
+set_target_properties( log4cplus_lib PROPERTIES IMPORTED_LOCATION /home/ubuntu/ThirdParty/log4cplus-2.1.2/install/lib/liblog4cplus.so )
+include_directories(/home/ubuntu/ThirdParty/log4cplus-2.1.2/install/include)
+
 
 # Include directories
 include_directories(include)
@@ -51,12 +56,12 @@ set(SOURCES
     src/highway_event.cpp
     src/image_processor.cpp
     src/process_mask.cu
-    src/semantic_segmentation.cpp
-    src/mask_postprocess.cpp
-    src/object_detection.cpp
-    src/object_tracking.cpp
-    src/event_determine.cpp
-    src/pipeline_manager.cpp
+    # src/semantic_segmentation.cpp
+    # src/mask_postprocess.cpp
+    # src/object_detection.cpp
+    # src/object_tracking.cpp
+    # src/event_determine.cpp
+    # src/pipeline_manager.cpp
     src/image_data.cpp
     src/event_utils.cc
     src/thread_pool.cpp
@@ -70,6 +75,8 @@ set(SOURCES
     src/batch_pipeline_manager.cpp
     # 内存监控模块
     src/memory_monitor.cpp
+    # 日志管理模块
+    src/logger_manager.cpp
 )
 aux_source_directory(${PROJECT_SOURCE_DIR}/src SRC_DIR)
 file(GLOB_RECURSE cuda_srcs ${PROJECT_SOURCE_DIR}/src/process_mask.cu  )
@@ -96,6 +103,7 @@ target_link_libraries(${sdk_target_name}
    cusolver  
    cusparse  
    cufft  
+   log4cplus_lib
 )
 # #################### jni #################
 include_directories(${ThirdParty}/jdk1.8.0_381/include)

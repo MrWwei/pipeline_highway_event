@@ -1,6 +1,7 @@
 #include "highway_event.h"
 #include "image_data.h"
 #include "batch_pipeline_manager.h"
+#include "logger_manager.h"
 #include <chrono>
 #include <iostream>
 #include <mutex>
@@ -90,9 +91,8 @@ void HighwayEventDetectorImpl::result_processing_thread() {
                 completed_results_[result->frame_idx] = result;
                 
                 if (config_.enable_debug_log) {
-                    std::cout << "✅ 结果处理完成，帧ID: " << result->frame_idx 
-                              << "，当前缓存数量: " << completed_results_.size() 
-                              << "/" << MAX_COMPLETED_RESULTS << std::endl;
+                    LOG_INFO_F("✅ 结果处理完成，帧ID: %llu，当前缓存数量: %zu/%zu", 
+                              result->frame_idx, completed_results_.size(), MAX_COMPLETED_RESULTS);
                 }
             }
             result_cv_.notify_all(); // 通知等待结果的线程
@@ -208,7 +208,13 @@ ProcessResult HighwayEventDetectorImpl::convert_to_process_result(ImageDataPtr i
 // HighwayEventDetectorImpl公共接口实现
 bool HighwayEventDetectorImpl::initialize(const HighwayEventConfig& config) {
     if (is_initialized_.load()) {
-        std::cerr << "❌ HighwayEventDetector 已经初始化过了" << std::endl;
+        LOG_ERROR("HighwayEventDetector 已经初始化过了");
+        return false;
+    }
+    
+    // 初始化日志系统
+    if (!LoggerManager::getInstance().initialize("highway_event.log", true, "INFO")) {
+        LOG_ERROR("❌ 日志系统初始化失败");
         return false;
     }
     
@@ -252,9 +258,10 @@ bool HighwayEventDetectorImpl::initialize(const HighwayEventConfig& config) {
         
         is_initialized_.store(true);
         
+        LOG_INFO("HighwayEventDetector 初始化成功");
         return true;
     } catch (const std::exception& e) {
-        std::cerr << "❌ HighwayEventDetector 初始化失败: " << e.what() << std::endl;
+        LOG_ERROR_F("HighwayEventDetector 初始化失败: %s", e.what());
         is_initialized_.store(false);
         return false;
     }
@@ -262,7 +269,7 @@ bool HighwayEventDetectorImpl::initialize(const HighwayEventConfig& config) {
 
 bool HighwayEventDetectorImpl::change_params(const HighwayEventConfig& config) {
     if (!is_initialized_.load()) {
-        std::cerr << "❌ HighwayEventDetector 尚未初始化，请先调用 initialize()" << std::endl;
+        LOG_ERROR("HighwayEventDetector 尚未初始化，请先调用 initialize()");
         return false;
     }
     
@@ -271,19 +278,19 @@ bool HighwayEventDetectorImpl::change_params(const HighwayEventConfig& config) {
     
     // 注意：BatchPipelineManager可能不支持运行时参数更改
     // 这里只更新内部配置，如需完整支持，可能需要重启流水线
-    std::cout << "⚠️ 批次流水线的参数更改支持有限，某些参数可能需要重启才能生效" << std::endl;
+    LOG_WARN("批次流水线的参数更改支持有限，某些参数可能需要重启才能生效");
     
     return true;
 }
 
 bool HighwayEventDetectorImpl::start() {
     if (!is_initialized_.load()) {
-        std::cerr << "❌ HighwayEventDetector 尚未初始化，请先调用 initialize()" << std::endl;
+        LOG_ERROR("HighwayEventDetector 尚未初始化，请先调用 initialize()");
         return false;
     }
     
     if (is_running_.load()) {
-        std::cerr << "❌ HighwayEventDetector 已经在运行中" << std::endl;
+        LOG_ERROR("HighwayEventDetector 已经在运行中");
         return false;
     }
     
@@ -300,7 +307,7 @@ bool HighwayEventDetectorImpl::start() {
         
         return true;
     } catch (const std::exception& e) {
-        std::cerr << "❌ HighwayEventDetector 启动失败: " << e.what() << std::endl;
+        LOG_ERROR_F("HighwayEventDetector 启动失败: %s", e.what());
         is_running_.store(false);
         return false;
     }
@@ -308,12 +315,12 @@ bool HighwayEventDetectorImpl::start() {
 
 int64_t HighwayEventDetectorImpl::add_frame(const cv::Mat& image) {
     if (!is_running_.load()) {
-        std::cerr << "❌ 流水线未初始化或未运行，请先调用 initialize()" << std::endl;
+        LOG_ERROR("流水线未初始化或未运行，请先调用 initialize()");
         return -1;
     }
     
     if (image.empty()) {
-        std::cerr << "❌ 输入图像为空" << std::endl;
+        LOG_ERROR("输入图像为空");
         return -1;
     }
     
@@ -331,19 +338,19 @@ int64_t HighwayEventDetectorImpl::add_frame(const cv::Mat& image) {
         return static_cast<int64_t>(frame_id);
     } catch (const std::exception& e) {
         // 异常安全：报告错误
-        std::cerr << "❌ 添加帧失败: " << e.what() << std::endl;
+        LOG_ERROR_F("添加帧失败: %s", e.what());
         return -1;
     }
 }
 
 int64_t HighwayEventDetectorImpl::add_frame(cv::Mat&& image) {
     if (!is_running_.load()) {
-        std::cerr << "❌ 流水线未初始化或未运行，请先调用 initialize()" << std::endl;
+        LOG_ERROR("流水线未初始化或未运行，请先调用 initialize()");
         return -1;
     }
     
     if (image.empty()) {
-        std::cerr << "❌ 输入图像为空" << std::endl;
+        LOG_ERROR("输入图像为空");
         return -1;
     }
     
@@ -362,7 +369,7 @@ int64_t HighwayEventDetectorImpl::add_frame(cv::Mat&& image) {
         return static_cast<int64_t>(frame_id);
     } catch (const std::exception& e) {
         // 异常安全：报告错误
-        std::cerr << "❌ 添加帧失败: " << e.what() << std::endl;
+        LOG_ERROR_F("添加帧失败: %s", e.what());
         return -1;
     }
 }
@@ -402,7 +409,7 @@ ProcessResult HighwayEventDetectorImpl::get_result_with_timeout(uint64_t frame_i
     
     if (!found) {
         if (config_.enable_debug_log) {
-            std::cout << "⏰ 帧 " << frame_id << " 等待超时，当前缓存数量: " << completed_results_.size() << std::endl;
+            LOG_DEBUG_F("帧 %llu 等待超时，当前缓存数量: %zu", frame_id, completed_results_.size());
         }
         result.status = ResultStatus::TIMEOUT;
         return result;
@@ -411,7 +418,7 @@ ProcessResult HighwayEventDetectorImpl::get_result_with_timeout(uint64_t frame_i
     it = completed_results_.find(frame_id);
     if (it != completed_results_.end()) {
         if (config_.enable_debug_log) {
-            std::cout << "✅ 帧 " << frame_id << " 等待成功，开始转换结果" << std::endl;
+            LOG_DEBUG_F("帧 %llu 等待成功，开始转换结果", frame_id);
         }
         result = convert_to_process_result(it->second);
         // 获取后删除结果，避免内存积累
@@ -421,7 +428,7 @@ ProcessResult HighwayEventDetectorImpl::get_result_with_timeout(uint64_t frame_i
         result_space_cv_.notify_one();
     } else {
         if (config_.enable_debug_log) {
-            std::cout << "❌ 帧 " << frame_id << " 等待结束后未找到结果" << std::endl;
+            LOG_DEBUG_F("帧 %llu 等待结束后未找到结果", frame_id);
         }
         result.status = ResultStatus::NOT_FOUND;
     }

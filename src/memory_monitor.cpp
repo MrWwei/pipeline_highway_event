@@ -1,4 +1,5 @@
 #include "memory_monitor.h"
+#include "logger_manager.h"
 #include <iostream>
 #include <sstream>
 #include <iomanip>
@@ -64,7 +65,7 @@ void MemoryMonitor::stop() {
         monitor_thread_.join();
     }
     
-    std::cout << "🛑 内存监控已停止" << std::endl;
+    LOG_INFO("🛑 内存监控已停止");
 }
 
 MemoryStats MemoryMonitor::get_current_stats() {
@@ -130,7 +131,7 @@ void MemoryMonitor::set_memory_warning_callback(std::function<void(const MemoryS
 void MemoryMonitor::print_memory_report() {
     auto stats = collect_memory_stats();
     
-    std::cout << "\n📊 内存使用报告:" << std::endl;
+    LOG_INFO("\n📊 内存使用报告:");
     std::cout << "├─ 进程内存: " << stats.process_memory_mb << " MB" << std::endl;
     std::cout << "├─ 虚拟内存: " << stats.virtual_memory_mb << " MB" << std::endl;
     std::cout << "├─ 驻留内存: " << stats.resident_memory_mb << " MB" << std::endl;
@@ -153,13 +154,13 @@ void MemoryMonitor::print_memory_report() {
               << growth_rate << " MB/s" << std::endl;
     
     if (leak_detected_) {
-        std::cout << "⚠️  检测到内存泄漏!" << std::endl;
+        LOG_INFO("⚠️  检测到内存泄漏!");
     }
     
     // 显示检查点信息
     std::lock_guard<std::mutex> lock(stats_mutex_);
     if (!checkpoints_.empty()) {
-        std::cout << "\n📍 内存检查点:" << std::endl;
+        LOG_INFO("\n📍 内存检查点:");
         for (const auto& checkpoint : checkpoints_) {
             std::cout << "   " << checkpoint.first << ": " 
                       << checkpoint.second.process_memory_mb << " MB" << std::endl;
@@ -205,7 +206,7 @@ void MemoryMonitor::reset_statistics() {
     leak_detection_start_time_ = std::chrono::steady_clock::now();
     leak_detection_start_memory_ = collect_memory_stats().process_memory_mb;
     
-    std::cout << "🔄 内存监控统计信息已重置" << std::endl;
+    LOG_INFO("🔄 内存监控统计信息已重置");
 }
 
 void MemoryMonitor::monitor_thread_func() {
@@ -408,7 +409,7 @@ void MemoryMonitor::check_memory_leak(const MemoryStats& stats) {
     if (growth_rate_per_minute > leak_detection_threshold_mb_per_min_) {
         if (!leak_detected_) {
             leak_detected_ = true;
-            std::cout << "⚠️  检测到疑似内存泄漏!" << std::endl;
+            LOG_INFO("⚠️  检测到疑似内存泄漏!");
             std::cout << "   内存增长率: " << std::fixed << std::setprecision(2) 
                       << growth_rate_per_minute << " MB/分钟" << std::endl;
             std::cout << "   阈值: " << leak_detection_threshold_mb_per_min_ << " MB/分钟" << std::endl;
@@ -480,7 +481,7 @@ void MemoryUtils::print_memory_summary() {
     size_t available_mb = get_available_memory_mb();
     auto gpu_memory = get_gpu_memory_usage_mb();
     
-    std::cout << "\n💾 内存使用摘要:" << std::endl;
+    LOG_INFO("\n💾 内存使用摘要:");
     std::cout << "├─ 进程内存: " << format_memory_size(process_mb * 1024 * 1024) << std::endl;
     std::cout << "├─ 系统可用内存: " << format_memory_size(available_mb * 1024 * 1024) << std::endl;
     

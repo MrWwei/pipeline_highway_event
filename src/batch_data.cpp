@@ -1,4 +1,5 @@
 #include "batch_data.h"
+#include "logger_manager.h"
 #include <iostream>
 #include <algorithm>
 
@@ -44,7 +45,7 @@ void BatchBuffer::stop() {
         flush_thread_.join();
     }
     
-    std::cout << "🛑 BatchBuffer 已停止" << std::endl;
+    LOG_INFO("🛑 BatchBuffer 已停止");
 }
 
 bool BatchBuffer::add_image(ImageDataPtr image) {
@@ -74,7 +75,7 @@ bool BatchBuffer::add_image(ImageDataPtr image) {
     // 添加图像到当前批次
     bool added = current_collecting_batch_->add_image(image);
     if (!added) {
-        std::cerr << "❌ 无法添加图像到批次，批次可能已满" << std::endl;
+        LOG_ERROR("❌ 无法添加图像到批次，批次可能已满");
         return false;
     }
     
@@ -238,7 +239,7 @@ void BatchConnector::start() {
 void BatchConnector::stop() {
     running_.store(false);
     queue_cv_.notify_all();
-    std::cout << "🛑 BatchConnector 已停止" << std::endl;
+    LOG_INFO("🛑 BatchConnector 已停止");
 }
 
 bool BatchConnector::send_batch(BatchPtr batch) {

@@ -1,4 +1,5 @@
 #include "highway_event.h"
+#include "logger_manager.h"
 #include <opencv2/opencv.hpp>
 #include <iostream>
 #include <vector>
@@ -9,24 +10,27 @@
  * 演示纯净接口的三个核心功能：初始化、添加数据、获取结果
  */
 int main() {
-    std::cout << "=== 高速公路事件检测器纯净接口示例 ===" << std::endl;
+    LOG_INFO("=== 高速公路事件检测器纯净接口示例 ===");
     
     // ========== 1. 初始化流水线 ==========
-    std::cout << "\n🔧 步骤1: 初始化流水线" << std::endl;
+    LOG_INFO("步骤1: 初始化流水线");
     
     HighwayEventDetector detector;
     
-    // 配置参数
+        // 配置参数
     HighwayEventConfig config;
-    config.semantic_threads = 2;
+    config.semantic_threads = 1;
     config.mask_threads = 1;
-    config.detection_threads = 2;
+    config.detection_threads = 1;
     config.tracking_threads = 1;
     config.filter_threads = 1;
-    config.enable_debug_log = true;  // 启用调试日志
-    config.seg_enable_show = false;  // 不保存可视化结果
-    config.enable_debug_log = true;
-    config.enable_status_print = true;
+    
+    // 日志配置
+    config.log_file_path = "highway_event_example.log";
+    config.enable_console_log = true;
+    config.log_level = "INFO";
+    
+    // 模型路径配置
     
     // 3. 初始化
     if (!detector.initialize(config)) {

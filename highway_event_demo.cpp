@@ -1,5 +1,6 @@
 #include "highway_event.h"
 #include "memory_monitor.h"
+#include "logger_manager.h"
 #include <opencv2/opencv.hpp>
 #include <iostream>
 #include <vector>

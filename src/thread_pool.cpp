@@ -1,4 +1,5 @@
 #include "thread_pool.h"
+#include "logger_manager.h"
 #include <iostream>
 
 ThreadPool::ThreadPool(size_t threads) : running_(true) {
@@ -37,7 +38,7 @@ ThreadPool::ThreadPool(size_t threads) : running_(true) {
                 } catch (const std::exception& e) {
                     std::cerr << "ThreadPool任务执行异常: " << e.what() << std::endl;
                 } catch (...) {
-                    std::cerr << "ThreadPool任务执行未知异常" << std::endl;
+                    LOG_ERROR("ThreadPool任务执行未知异常");
                 }
             }
         });
@@ -78,7 +79,7 @@ void ThreadPool::stop() {
         tasks_.swap(empty_queue);
     }
     
-    std::cout << "🛑 ThreadPool已停止" << std::endl;
+    LOG_INFO("🛑 ThreadPool已停止");
 }
 
 size_t ThreadPool::get_queue_size() const {

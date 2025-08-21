@@ -1,4 +1,5 @@
 #include "batch_event_determine.h"
+#include "logger_manager.h"
 #include <iostream>
 #include <algorithm>
 // #include <execution>
@@ -70,7 +71,7 @@ void BatchEventDetermine::stop() {
     }
     worker_threads_.clear();
     
-    std::cout << "🛑 批次事件判定已停止" << std::endl;
+    LOG_INFO("🛑 批次事件判定已停止");
 }
 
 bool BatchEventDetermine::add_batch(BatchPtr batch) {
@@ -260,7 +261,7 @@ void BatchEventDetermine::perform_event_determination(ImageDataPtr image) {
   } else {
     // 全图范围内也没有目标框
     image->has_filtered_box = false;
-    // std::cout << "⚠️ 全图范围内都没有找到目标框" << std::endl;
+    // LOG_INFO("⚠️ 全图范围内都没有找到目标框");
   }
   
 }

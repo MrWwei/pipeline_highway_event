@@ -1,4 +1,5 @@
 #include "batch_mask_postprocess.h"
+#include "logger_manager.h"
 #include <iostream>
 #include <algorithm>
 #include "process_mask.h"
@@ -71,7 +72,7 @@ void BatchMaskPostProcess::stop() {
     }
     worker_threads_.clear();
     
-    std::cout << "🛑 批次Mask后处理已停止" << std::endl;
+    LOG_INFO("🛑 批次Mask后处理已停止");
 }
 
 bool BatchMaskPostProcess::add_batch(BatchPtr batch) {
@@ -199,7 +200,7 @@ void BatchMaskPostProcess::worker_thread_func() {
 
 void BatchMaskPostProcess::process_image_mask(ImageDataPtr image) {
     if (!image || image->label_map.empty()) {
-        std::cerr << "⚠️ 图像或label_map为空，跳过Mask后处理" << std::endl;
+        LOG_ERROR("⚠️ 图像或label_map为空，跳过Mask后处理");
         image->roi = cv::Rect(0, 0, image->width, image->height);
         image->mask_postprocess_completed = true;
         return;

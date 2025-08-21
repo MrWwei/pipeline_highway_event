@@ -1,4 +1,5 @@
 #include "batch_object_detection.h"
+#include "logger_manager.h"
 #include <iostream>
 #include <algorithm>
 #include <opencv2/imgproc.hpp>
@@ -28,15 +29,15 @@ BatchObjectDetection::BatchObjectDetection(int num_threads, const PipelineConfig
         gpu_src_cache_.create(1024, 1024, CV_8UC3);
         gpu_dst_cache_.create(1024, 1024, CV_8UC3);
         cuda_available_ = true;
-        std::cout << "✅ CUDA已启用，批次目标检测将使用GPU加速" << std::endl;
+        LOG_INFO("✅ CUDA已启用，批次目标检测将使用GPU加速");
     } catch (const cv::Exception& e) {
         cuda_available_ = false;
-        std::cout << "⚠️ 未检测到CUDA设备，批次目标检测将使用CPU" << std::endl;
+        LOG_INFO("⚠️ 未检测到CUDA设备，批次目标检测将使用CPU");
     }
     
     // 初始化检测模型
     if (!initialize_detection_models()) {
-        std::cerr << "❌ 批次目标检测模型初始化失败" << std::endl;
+        LOG_ERROR("❌ 批次目标检测模型初始化失败");
     }
 }
 
@@ -88,7 +89,7 @@ void BatchObjectDetection::stop() {
     }
     worker_threads_.clear();
     
-    std::cout << "🛑 批次目标检测已停止" << std::endl;
+    LOG_INFO("🛑 批次目标检测已停止");
 }
 
 bool BatchObjectDetection::add_batch(BatchPtr batch) {
@@ -134,7 +135,13 @@ bool BatchObjectDetection::process_batch(BatchPtr batch) {
         for (auto& out : car_outs) {
             car_out_ptrs.push_back(&out);
         }
+        auto start_time1 = std::chrono::high_resolution_clock::now();
         car_detect_instances_[0]->forward(crop_images, car_out_ptrs.data());
+        auto end_time1 = std::chrono::high_resolution_clock::now();
+        auto duration1 = std::chrono::duration_cast<std::chrono::milliseconds>(end_time1 - start_time1);
+        std::cout << "目标检测耗时: " 
+                  << duration1.count() << " ms，实际图像数量: " 
+                  << batch->actual_size << std::endl;
         for(size_t i = 0; i < batch->images.size(); ++i) {
             auto& image = batch->images[i];
             cv::Mat crop_image = crop_images[i];
@@ -260,7 +267,9 @@ bool BatchObjectDetection::initialize_detection_models() {
             
             AlgorConfig car_params;
             car_params.model_path = config_.car_det_model_path.empty() ? "car_detect.trt" : config_.car_det_model_path;
-  
+            car_params.min_opt = config_.det_min_opt;
+            car_params.mid_opt = config_.det_mid_opt;
+            car_params.max_opt = config_.det_max_opt;
             car_detect->init(car_params);
             // if (car_detect->init(car_params)) {
             //     std::cerr << "❌ 车辆检测模型初始化失败，线程 " << i << std::endl;
